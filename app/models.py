@@ -70,6 +70,9 @@ class Profile(Base):
     summary: Mapped[str] = mapped_column(Text, default="")
     skills: Mapped[list] = mapped_column(JSON, default=list)  # [{skill, evidence_source}]
     target_roles: Mapped[list] = mapped_column(JSON, default=list)  # [str]
+    # Optional owner-written example cover letter. When set, drafting follows its
+    # structure/tone/format instead of the app's generic default structure.
+    cover_letter_template: Mapped[str] = mapped_column(Text, default="")
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, onupdate=_utcnow)
 
 
@@ -128,6 +131,8 @@ class Company(Base):
     research: Mapped[dict] = mapped_column(JSON, default=dict)  # cached extracted text + findings w/ source URLs
     preference_check: Mapped[list] = mapped_column(JSON, default=list)
     # [{preference_id, matched, severity, evidence_snippet, source_url, confidence}]
+    hard_exclusion_confirmed: Mapped[bool] = mapped_column(default=False)
+    # owner has seen a hard-exclusion warning and chosen to proceed anyway (section 4)
     notes: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
 

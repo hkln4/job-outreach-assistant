@@ -1,0 +1,129 @@
+{% extends "base.html" %}
+{% block title %}{{ application.company.name }}{% endblock %}
+{% block content %}
+  <div class="dash-header">
+    <div>
+      <h1>{{ application.company.name }}</h1>
+      <p class="muted">{{ application.target_position or t("common.untitled") }} &middot; <span class="badge badge-state">{{ application.state.value }}</span></p>
+    </div>
+    <a class="button-link secondary" href="/">{{ t("application_detail.back_to_dashboard") }}</a>
+  </div>
+
+  {% if application.revision_history and application.revision_history[0].reasoning %}
+  <div class="ai-note">
+    <div class="ai-note-avatar">AI</div>
+    <div class="ai-note-body">
+      <p class="ai-note-title">{{ t("application_detail.reasoning_title") }}</p>
+      <p class="ai-note-text">{{ application.revision_history[0].reasoning }}</p>
+    </div>
+  </div>
+  {% endif %}
+
+  {% if not application.cover_letter_body %}
+    <div class="card">
+      <p class="empty-state">{{ t("application_detail.no_draft_yet") }}</p>
+    </div>
+  {% else %}
+    <div class="email-card">
+      <div class="email-meta">
+        <div class="email-meta-row"><span class="email-meta-label">{{ t("application_detail.field.to") }}</span>
+          {% if recipient %}{{ recipient }}{% else %}<span class="badge badge-hard">{{ t("application_detail.no_contact_email") }}</span> <a href="/companies/{{ application.company.id }}">{{ t("application_detail.add_contact_email") }}</a>{% endif %}
+        </div>
+        <div class="email-meta-row"><span class="email-meta-label">{{ t("application_detail.field.subject") }}</span>{{ application.subject }}</div>
+        <div class="email-meta-row"><span class="email-meta-label">{{ t("application_detail.field.attachment") }}</span>
+          {% if application.state.value == "PENDING_APPROVAL" %}
+            <form method="post" action="/applications/{{ application.id }}/cv" class="cv-picker">
+              <select name="cv_id" onchange="this.form.submit()">
+                <option value="">{{ t("application_detail.no_cv_option") }}</option>
+                {% for cv in cvs %}
+                  <option value="{{ cv.id }}" {% if application.cv_id == cv.id %}selected{% endif %}>{{ cv.name }}</option>
+                {% endfor %}
+              </select>
+            </form>
+            {% if not application.cv %}
+              <span class="badge badge-hard">{{ t("application_detail.no_cv_attached") }}</span>
+            {% endif %}
+          {% elif application.cv %}
+            {{ application.cv.name }}
+          {% else %}
+            <span class="badge badge-hard">{{ t("application_detail.no_cv_attached") }}</span>
+          {% endif %}
+        </div>
+      </div>
+      {% if application.state.value == "PENDING_APPROVAL" %}
+      <div class="email-toolbar">
+        <details class="edit-toggle">
+          <summary title="{{ t('application_detail.edit_summary') }}">✎ {{ t("common.edit") }}</summary>
+          <form method="post" action="/applications/{{ application.id }}/edit" id="edit-form-{{ application.id }}" data-loading-text="{{ t('loading.saving') }}">
+            <button type="submit">{{ t("common.save") }}</button>
+          </form>
+        </details>
+      </div>
+      {% endif %}
+      <div class="email-body">{{ application.cover_letter_body }}</div>
+      {% if application.state.value == "PENDING_APPROVAL" %}
+      <div class="email-body-edit">
+        <input form="edit-form-{{ application.id }}" type="text" name="subject" value="{{ application.subject }}" required class="edit-subject-input">
+        <textarea form="edit-form-{{ application.id }}" name="cover_letter_body" required>{{ application.cover_letter_body }}</textarea>
+      </div>
+      {% endif %}
+    </div>
+
+    {% if application.sources %}
+    <details class="section">
+      <summary>{{ t("application_detail.sources_title") }} ({{ application.sources | length }})</summary>
+      <ul class="link-list">
+        {% for src in application.sources %}
+        <li><a href="{{ src }}" target="_blank" rel="noopener">{{ src }}</a></li>
+        {% endfor %}
+      </ul>
+    </details>
+    {% endif %}
+
+    {% if application.state.value == "PENDING_APPROVAL" %}
+    <div class="review-panel">
+      <form method="post" action="/applications/{{ application.id }}/approve" data-loading-text="{{ t('loading.sending') }}" class="review-approve-form">
+        <button type="submit" {{ "disabled" if not recipient or not application.cv }}>{{ t("application_detail.button.approve") }}</button>
+      </form>
+      <details class="reject-toggle">
+        <summary>{{ t("application_detail.button.reject") }}</summary>
+        <form method="post" action="/applications/{{ application.id }}/reject" data-loading-text="{{ t('loading.regenerating') }}">
+          <textarea name="feedback" rows="1" required placeholder="{{ t('application_detail.field.feedback_placeholder') }}" autofocus></textarea>
+          <button type="submit" title="{{ t('application_detail.button.reject_confirm') }}" aria-label="{{ t('application_detail.button.reject_confirm') }}">↑</button>
+        </form>
+      </details>
+    </div>
+    {% endif %}
+  {% endif %}
+
+  {% if application.gmail_thread_id %}
+  <div class="section card">
+    <h2>{{ t("application_detail.reply_check_title") }}</h2>
+    <form method="post" action="/applications/{{ application.id }}/check-reply" data-loading-text="{{ t('loading.checking') }}">
+      <button type="submit" class="secondary">{{ t("application_detail.button.check_reply") }}</button>
+    </form>
+  </div>
+  {% endif %}
+
+  {% if application.state.value != "PENDING_APPROVAL" %}
+  <details class="section">
+    <summary>{{ t("application_detail.state_override_title") }}</summary>
+    <form method="post" action="/applications/{{ application.id }}/state">
+      <select name="state" onchange="this.form.submit()">
+        {% for s in states %}
+        <option value="{{ s.value }}" {% if application.state == s %}selected{% endif %}>{{ s.value }}</option>
+        {% endfor %}
+      </select>
+    </form>
+  </details>
+  {% endif %}
+
+  {% if application.revision_history | length > 1 %}
+  <details class="section">
+    <summary>{{ t("application_detail.revision_history_title") }}</summary>
+    {% for rev in application.revision_history[1:] %}
+      <div class="evidence"><strong>{{ t("application_detail.feedback_label") }}</strong> {{ rev.feedback }}</div>
+    {% endfor %}
+  </details>
+  {% endif %}
+{% endblock %}

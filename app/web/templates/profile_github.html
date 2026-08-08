@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}{{ t("profile_github.title") }}{% endblock %}
+{% block content %}
+  <h1>{{ t("profile_github.title") }}</h1>
+  <p class="hint">{{ t("profile_github.hint") }}</p>
+
+  {% if error %}
+    <div class="warning"><h3>{{ t("profile_github.error_title") }}</h3><p>{{ error }}</p></div>
+  {% endif %}
+
+  {% if repos %}
+  <form method="post" action="/profile/github/ingest">
+    <table class="table">
+      <thead><tr><th></th><th>{{ t("profile_github.table.repo") }}</th><th>{{ t("common.description") }}</th><th>{{ t("profile_github.table.language") }}</th><th>{{ t("profile_github.table.stars") }}</th><th>{{ t("profile_github.table.fork") }}</th><th>{{ t("profile_github.table.empty") }}</th></tr></thead>
+      <tbody>
+        {% for repo in repos %}
+        <tr>
+          <td>
+            <input type="checkbox" name="selected_repos" value="{{ repo.full_name }}"
+                   {% if repo.suggested_include %}checked{% endif %}>
+          </td>
+          <td><a href="{{ repo.html_url }}" target="_blank" rel="noopener">{{ repo.full_name }}</a></td>
+          <td class="muted">{{ repo.description }}</td>
+          <td>{{ repo.language }}</td>
+          <td>{{ repo.stars }}</td>
+          <td>{{ t("profile_github.yes") if repo.is_fork else t("profile_github.no") }}</td>
+          <td>{{ t("profile_github.yes") if repo.is_empty else t("profile_github.no") }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <button type="submit">{{ t("profile_github.button.ingest") }}</button>
+  </form>
+  {% elif not error %}
+    <p class="muted">{{ t("profile_github.no_repos") }}</p>
+  {% endif %}
+{% endblock %}

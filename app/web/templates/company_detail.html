@@ -1,0 +1,131 @@
+{% extends "base.html" %}
+{% block title %}{{ company.name }}{% endblock %}
+{% block content %}
+  <div class="dash-header">
+    <div>
+      <h1>{{ company.name }}</h1>
+      <p class="muted">
+        {% if company.website_url %}<a href="{{ company.website_url }}" target="_blank" rel="noopener">{{ company.website_url }}</a>{% endif %}
+        &middot; {{ t("company_detail.state_label") }} {{ company.state.value }}
+      </p>
+    </div>
+    <div class="dash-header-actions">
+      <a class="button-link secondary" href="/companies">{{ t("company_detail.back_to_companies") }}</a>
+      <form method="post" action="/companies/{{ company.id }}/delete" onsubmit="return confirm('{{ t('company_detail.delete_confirm') }}');">
+        <button type="submit" class="secondary danger">{{ t("company_detail.delete_button") }}</button>
+      </form>
+    </div>
+  </div>
+
+  {% if company.preference_check %}
+    {% for pc in company.preference_check %}
+    <div class="warning">
+      <h3><span class="badge badge-{{ pc.severity }}">{{ pc.severity }}</span> {{ t("company_detail.preference_match") }} ({{ pc.confidence }} {{ t("company_detail.confidence") }})</h3>
+      <div class="evidence">"{{ pc.evidence_snippet }}"<br><a href="{{ pc.source_url }}" target="_blank" rel="noopener">{{ pc.source_url }}</a></div>
+    </div>
+    {% endfor %}
+    {% if blocked %}
+      <form method="post" action="/companies/{{ company.id }}/confirm-exclusion">
+        <button type="submit">{{ t("company_detail.confirm_button") }}</button>
+      </form>
+    {% endif %}
+  {% endif %}
+
+  <div class="section card">
+    <h2>{{ t("company_detail.research_title") }}</h2>
+    {% if company.research.pages %}
+      {% if company.research.summary %}
+        <p>{{ company.research.summary }}</p>
+      {% endif %}
+      <p class="hint">{{ t("company_detail.fetched") }} {{ company.research.fetched_at }}</p>
+      <details>
+        <summary>{{ t("company_detail.sources_summary") }} ({{ company.research.pages | length }})</summary>
+        <ul class="link-list">
+          {% for page in company.research.pages %}
+            <li><a href="{{ page.url }}" target="_blank" rel="noopener">{{ page.url }}</a></li>
+          {% endfor %}
+        </ul>
+      </details>
+      {% if company.other_channels %}
+        <p class="hint">{{ t("company_detail.other_channels") }} {{ company.other_channels | join(", ") }}</p>
+      {% endif %}
+    {% elif company.research.error %}
+      <p class="muted">{{ t("company_detail.research_failed") }}</p>
+      <div class="evidence">{{ company.research.error }}</div>
+    {% else %}
+      <p class="muted">{{ t("company_detail.not_researched") }}</p>
+    {% endif %}
+    <form method="post" action="/companies/{{ company.id }}/research" data-loading-text="{{ t('loading.researching') }}">
+      <button type="submit" class="secondary">{{ t("company_detail.rerun_research") if company.research.pages else t("company_detail.run_research") }}</button>
+    </form>
+  </div>
+
+  <div class="section card">
+    <h2>{{ t("company_detail.details_title") }}</h2>
+    {% if not company.contact_email %}
+      <p class="hint">{{ t("company_detail.contact_email_hint") }}</p>
+    {% endif %}
+    <form method="post" action="/companies/{{ company.id }}/details">
+      <label>{{ t("common.email") }}
+        <input type="email" name="contact_email" value="{{ company.contact_email or '' }}" placeholder="jobs@company.com">
+      </label>
+      <label>{{ t("common.notes") }}
+        <textarea name="notes" rows="2">{{ company.notes }}</textarea>
+      </label>
+      <button type="submit">{{ t("common.save") }}</button>
+    </form>
+  </div>
+
+  {% if applications %}
+  <div class="section">
+    <h2>{{ t("company_detail.applications_title") }}</h2>
+    <table class="table">
+      <thead><tr><th>{{ t("company_detail.table.position") }}</th><th>{{ t("common.state") }}</th><th>{{ t("company_detail.table.sent") }}</th></tr></thead>
+      <tbody>
+        {% for app in applications %}
+        <tr>
+          <td><a href="/applications/{{ app.id }}">{{ app.target_position or t("common.untitled") }}</a></td>
+          <td>{{ app.state.value }}</td>
+          <td>{{ app.sent_at.strftime("%Y-%m-%d") if app.sent_at else "—" }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+
+  <details class="section card">
+    <summary>{{ t("company_detail.contacts_title") }} ({{ contacts | length }})</summary>
+    <form method="post" action="/companies/{{ company.id }}/contacts">
+      <label>{{ t("common.name") }} <input type="text" name="name" required></label>
+      <label>{{ t("common.role") }} <input type="text" name="role"></label>
+      <label>{{ t("common.email") }} <input type="email" name="email" required></label>
+      <label>{{ t("common.source_url") }} <input type="url" name="source_url"></label>
+      <button type="submit">{{ t("company_detail.button.add_contact") }}</button>
+    </form>
+    <table class="table">
+      <thead><tr><th>{{ t("common.name") }}</th><th>{{ t("common.role") }}</th><th>{{ t("common.email") }}</th><th>{{ t("common.state") }}</th><th></th></tr></thead>
+      <tbody>
+        {% for contact in contacts %}
+        <tr>
+          <td>{{ contact.name }}</td>
+          <td>{{ contact.role }}</td>
+          <td>{{ contact.email }}</td>
+          <td>{{ contact.state.value }}</td>
+          <td>
+            {% if contact.state.value == "NOT_CONTACTED" %}
+            <form method="post" action="/companies/{{ company.id }}/contacts/{{ contact.id }}/escalate" data-loading-text="{{ t('loading.drafting') }}">
+              <button type="submit">{{ t("company_detail.button.escalate") }}</button>
+            </form>
+            {% elif contact.application_id %}
+              <a href="/applications/{{ contact.application_id }}">{{ t("company_detail.view_draft") }}</a>
+            {% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="5" class="muted">{{ t("company_detail.no_contacts") }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </details>
+{% endblock %}

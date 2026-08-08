@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}{{ t("preferences.title") }}{% endblock %}
+{% block content %}
+  <h1>{{ t("preferences.title") }}</h1>
+  <p class="hint">{{ t("preferences.hint") }}</p>
+
+  <form class="card" method="post" action="/preferences">
+    <h2>{{ t("preferences.add_title") }}</h2>
+    <label>{{ t("common.description") }}
+      <input type="text" name="description" required placeholder="{{ t('preferences.field.description_placeholder') }}">
+    </label>
+    <label>{{ t("common.type") }}
+      <select name="type">
+        <option value="hard">{{ t("preferences.type.hard") }}</option>
+        <option value="soft">{{ t("preferences.type.soft") }}</option>
+      </select>
+    </label>
+    <label>{{ t("preferences.field.signals") }}
+      <input type="text" name="signals" placeholder="{{ t('preferences.field.signals_placeholder') }}">
+    </label>
+    <button type="submit">{{ t("preferences.button.add") }}</button>
+  </form>
+
+  <table class="table">
+    <thead><tr><th>{{ t("common.description") }}</th><th>{{ t("common.type") }}</th><th>{{ t("preferences.table.signals") }}</th><th></th></tr></thead>
+    <tbody>
+      {% for pref in preferences %}
+      <tr>
+        <td>{{ pref.description }}</td>
+        <td><span class="badge badge-{{ pref.type.value }}">{{ pref.type.value }}</span></td>
+        <td class="muted">{{ pref.signals | join(", ") }}</td>
+        <td>
+          <form method="post" action="/preferences/{{ pref.id }}/delete">
+            <button type="submit" class="secondary">{{ t("preferences.button.delete") }}</button>
+          </form>
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="4" class="muted">{{ t("preferences.empty") }}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% endblock %}

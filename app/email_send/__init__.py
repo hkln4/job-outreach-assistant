@@ -1,9 +1,10 @@
 """
-Gmail send (CLAUDE.md sections 5 step 5, 9, 12). NOT YET IMPLEMENTED.
+Gmail send (CLAUDE.md sections 5 step 5, 9, 12).
 
-Planned: gmail_client.py - OAuth2 via google-api-python-client, sends the approved
-Application with the exact chosen CV attached. Deliverability rules to enforce here
-(section 9): validate recipient address before sending, delay between sends, never
-send to the same company/contact twice (dedup check against existing Application/
-Contact rows). No auto-send - this is only ever called after explicit UI approval.
+gmail_client.py: OAuth2 via google-api-python-client (send_email, thread_has_reply).
+Still open: wiring send_email into the Application approval flow with the exact
+chosen CV attached, the send-delay between sends, and the dedup check against
+existing Application/Contact rows (section 9) - that lives in app.applications
+once drafting/review is built. No auto-send - only ever called after explicit
+UI approval.
 """

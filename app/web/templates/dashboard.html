@@ -1,25 +1,122 @@
 {% extends "base.html" %}
-{% block title %}Dashboard{% endblock %}
+{% block title %}{{ t("dashboard.title") }}{% endblock %}
 {% block content %}
-  <h1>Dashboard</h1>
+  <div class="dash-header">
+    <h1>{{ t("dashboard.title") }}</h1>
+    <a class="button-link" href="/companies">{{ t("dashboard.button.add_company") }}</a>
+  </div>
+
+  {% if not setup_done %}
+  <div class="card">
+    <h2>{{ t("dashboard.checklist_title") }}</h2>
+    <div class="checklist">
+      {% for step in checklist %}
+      <div class="checklist-item {{ 'done' if step.done else 'pending' }}">
+        <span class="checklist-dot">{{ "✓" if step.done else "" }}</span>
+        <a href="{{ step.href }}">{{ t("dashboard.checklist." ~ step.key) }}</a>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  {% if pending_review %}
+  <div class="section card">
+    <h2>{{ t("dashboard.section.pending_review") }} ({{ pending_review | length }})</h2>
+    <table class="table">
+      <tbody>
+        {% for app in pending_review %}
+        <tr>
+          <td><a href="/applications/{{ app.id }}">{{ app.company.name }}</a></td>
+          <td class="muted">{{ app.target_position or t("common.untitled") }}</td>
+          <td class="row-action"><a class="button-link" href="/applications/{{ app.id }}">{{ t("dashboard.button.review") }}</a></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+
+  {% if ready_to_draft %}
+  <div class="section card">
+    <h2>{{ t("dashboard.section.ready_to_draft") }} ({{ ready_to_draft | length }})</h2>
+    <table class="table">
+      <tbody>
+        {% for company in ready_to_draft %}
+        <tr>
+          <td><a href="/companies/{{ company.id }}">{{ company.name }}</a></td>
+          <td class="row-action">
+            <form method="post" action="/companies/{{ company.id }}/draft" data-loading-text="{{ t('loading.drafting') }}">
+              <button type="submit">{{ t("dashboard.button.start_application") }}</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+
+  {% if needs_research %}
+  <div class="section card">
+    <h2>{{ t("dashboard.section.needs_research") }} ({{ needs_research | length }})</h2>
+    <table class="table">
+      <tbody>
+        {% for company in needs_research %}
+        <tr>
+          <td><a href="/companies/{{ company.id }}">{{ company.name }}</a></td>
+          <td class="row-action">
+            <form method="post" action="/companies/{{ company.id }}/research" data-loading-text="{{ t('loading.researching') }}">
+              <button type="submit">{{ t("company_detail.run_research") }}</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+
+  {% if blocked %}
+  <div class="section card">
+    <h2>{{ t("dashboard.section.blocked") }} ({{ blocked | length }})</h2>
+    <table class="table">
+      <tbody>
+        {% for company in blocked %}
+        <tr>
+          <td><a href="/companies/{{ company.id }}">{{ company.name }}</a></td>
+          <td class="row-action"><a class="button-link" href="/companies/{{ company.id }}">{{ t("dashboard.button.review") }}</a></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+
+  {% if not pending_review and not ready_to_draft and not needs_research and not blocked %}
+  <div class="card">
+    <p class="empty-state">
+      {% if total_companies == 0 %}
+        {{ t("dashboard.empty_no_companies") }}
+      {% else %}
+        {{ t("dashboard.all_caught_up") }}
+      {% endif %}
+    </p>
+  </div>
+  {% endif %}
+
   <div class="stat-grid">
     <div class="stat-card">
       <div class="stat-value">{{ total_companies }}</div>
-      <div class="stat-label">Companies tracked</div>
+      <div class="stat-label">{{ t("dashboard.stat.companies") }}</div>
     </div>
     <div class="stat-card">
       <div class="stat-value">{{ applicable_count }}</div>
-      <div class="stat-label">Marked APPLICABLE</div>
+      <div class="stat-label">{{ t("dashboard.stat.applicable") }}</div>
     </div>
     <div class="stat-card">
       <div class="stat-value">{{ total_applications }}</div>
-      <div class="stat-label">Applications sent/drafted</div>
+      <div class="stat-label">{{ t("dashboard.stat.applications") }}</div>
     </div>
   </div>
-
-  <p class="hint">
-    Start by adding companies on the <a href="/companies">Companies</a> page.
-    The Profile Builder, preference checks, and drafting workflow are not wired up yet -
-    see CLAUDE.md section 10 for the build order.
-  </p>
 {% endblock %}

@@ -1,41 +1,44 @@
 {% extends "base.html" %}
-{% block title %}Companies{% endblock %}
+{% block title %}{{ t("companies.title") }}{% endblock %}
 {% block content %}
-  <h1>Companies</h1>
+  <h1>{{ t("companies.title") }}</h1>
+  <p class="hint">{{ t("companies.add_hint") }}</p>
 
-  <form class="card" method="post" action="/companies">
-    <h2>Add a company</h2>
-    <label>Name
-      <input type="text" name="name" required>
-    </label>
-    <label>Website URL
-      <input type="url" name="website_url" placeholder="https://example.com">
-    </label>
-    <label>Notes
-      <textarea name="notes" rows="2"></textarea>
-    </label>
-    <button type="submit">Add company</button>
+  <form class="inline-form" method="post" action="/companies" data-loading-text="{{ t('loading.researching') }}">
+    <input type="text" name="name" placeholder="{{ t('common.name') }}" required>
+    <input type="url" name="website_url" placeholder="{{ t('companies.field.website_placeholder') }}">
+    <input type="email" name="contact_email" placeholder="jobs@company.com">
+    <button type="submit">{{ t("companies.button.add") }}</button>
   </form>
 
   <table class="table">
     <thead>
       <tr>
-        <th>Name</th>
-        <th>Website</th>
-        <th>State</th>
-        <th>Notes</th>
-        <th>Added</th>
+        <th>{{ t("common.name") }}</th>
+        <th>{{ t("common.website") }}</th>
+        <th>{{ t("common.email") }}</th>
+        <th>{{ t("common.state") }}</th>
+        <th>{{ t("common.notes") }}</th>
+        <th>{{ t("companies.table.added") }}</th>
+        <th></th>
       </tr>
     </thead>
     <tbody>
       {% for company in companies %}
       <tr>
-        <td>{{ company.name }}</td>
+        <td><a href="/companies/{{ company.id }}">{{ company.name }}</a></td>
         <td>
           {% if company.website_url %}
             <a href="{{ company.website_url }}" target="_blank" rel="noopener">{{ company.website_url }}</a>
           {% else %}
-            <span class="muted">none</span>
+            <span class="muted">{{ t("common.none") }}</span>
+          {% endif %}
+        </td>
+        <td>
+          {% if company.contact_email %}
+            {{ company.contact_email }}
+          {% else %}
+            <span class="badge badge-hard">{{ t("common.none") }}</span>
           {% endif %}
         </td>
         <td>
@@ -49,9 +52,14 @@
         </td>
         <td>{{ company.notes }}</td>
         <td>{{ company.created_at.strftime("%Y-%m-%d") }}</td>
+        <td class="row-action">
+          <form method="post" action="/companies/{{ company.id }}/delete" onsubmit="return confirm('{{ t('company_detail.delete_confirm') }}');">
+            <button type="submit" class="secondary danger">{{ t("common.delete") }}</button>
+          </form>
+        </td>
       </tr>
       {% else %}
-      <tr><td colspan="5" class="muted">No companies yet.</td></tr>
+      <tr><td colspan="7" class="muted">{{ t("companies.empty") }}</td></tr>
       {% endfor %}
     </tbody>
   </table>

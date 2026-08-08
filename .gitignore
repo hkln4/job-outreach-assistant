@@ -15,8 +15,7 @@ venv/
 # Data (owner-specific, never committed)
 data/*.db
 data/*.sqlite3
-data/cvs/
-data/uploads/
+data/cv_variants/
 data/profile_sources/
 
 # OAuth / credentials

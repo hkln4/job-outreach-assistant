@@ -1,0 +1,171 @@
+{% extends "base.html" %}
+{% block title %}{{ t("profile.title") }}{% endblock %}
+{% block content %}
+  <h1>{{ t("profile.title") }}</h1>
+
+  <div class="card">
+    <h2>{{ t("profile.cover_letter_template_title") }}</h2>
+    <p class="hint">{{ t("profile.cover_letter_template_hint") }}</p>
+    <form method="post" action="/profile/cover-letter-template" data-loading-text="{{ t('loading.saving') }}">
+      <textarea name="cover_letter_template" rows="10" placeholder="{{ t('profile.cover_letter_template_placeholder') }}">{{ profile.cover_letter_template if profile else "" }}</textarea>
+      <button type="submit">{{ t("common.save") }}</button>
+    </form>
+  </div>
+
+  {% if profile and profile.summary %}
+    <div class="card">
+      <h2>{{ t("profile.summary_title") }}</h2>
+      <p>{{ profile.summary }}</p>
+
+      {% if profile.target_roles %}
+      <p class="chip-label">{{ t("profile.target_roles_label") }}</p>
+      <div class="chip-list">
+        {% for role in profile.target_roles %}<span class="chip">{{ role }}</span>{% endfor %}
+      </div>
+      {% endif %}
+
+      {% if profile.skills %}
+      <p class="chip-label">{{ t("profile.skills_label") }}</p>
+      <div class="chip-list">
+        {% for s in profile.skills %}<span class="chip" title="{{ s.evidence_source }}">{{ s.skill }}</span>{% endfor %}
+      </div>
+      {% endif %}
+    </div>
+
+    <details class="section card">
+      <summary>{{ t("profile.edit_summary") }}</summary>
+      <form method="post" action="/profile/update" data-loading-text="{{ t('loading.saving') }}">
+        <label>{{ t("profile.field.summary") }}
+          <textarea name="summary" rows="4">{{ profile.summary }}</textarea>
+        </label>
+        <label>{{ t("profile.field.target_roles") }}
+          <textarea name="target_roles" rows="3">{{ profile.target_roles | join("\n") }}</textarea>
+        </label>
+        <label>{{ t("profile.field.skills") }}
+          <textarea name="skills" rows="6">{% for s in profile.skills %}{{ s.skill }} | {{ s.evidence_source }}
+{% endfor %}</textarea>
+        </label>
+        <button type="submit">{{ t("profile.button.save") }}</button>
+      </form>
+    </details>
+  {% endif %}
+
+  <details class="section card" {{ "open" if not (profile and profile.summary) }}>
+    <summary>{{ t("profile.manage_sources_summary") }}</summary>
+    <p class="hint">{{ t("profile.what_is_ingest") }}</p>
+
+    <div class="step-card">
+      <h3>{{ t("profile.cv_section_title") }}</h3>
+      <p class="hint">{{ t("profile.cv_section_hint") }}</p>
+      {% if pending_cvs %}
+      <table class="table">
+        <thead><tr><th>{{ t("common.name") }}</th><th>{{ t("cvs.table.target_role") }}</th><th></th></tr></thead>
+        <tbody>
+          {% for cv in pending_cvs %}
+          <tr>
+            <td>{{ cv.name }}</td>
+            <td>{{ cv.target_role or "—" }}</td>
+            <td>
+              <form method="post" action="/profile/cv/ingest/{{ cv.id }}" data-loading-text="{{ t('loading.ingesting') }}">
+                <button type="submit">{{ t("profile.button.ingest_this_cv") }}</button>
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <p class="muted">{{ t("profile.all_cvs_ingested") }}</p>
+      {% endif %}
+    </div>
+
+    <div class="step-card">
+      <h3>{{ t("profile.linkedin_title") }}</h3>
+      <p class="hint">{{ t("profile.linkedin_hint") }}</p>
+      <form method="post" action="/profile/linkedin/upload" enctype="multipart/form-data" data-loading-text="{{ t('loading.ingesting') }}">
+        <input type="file" name="file" accept=".pdf" required>
+        <button type="submit">{{ t("profile.button.ingest_linkedin") }}</button>
+      </form>
+    </div>
+
+    <div class="step-card">
+      <h3>{{ t("profile.github_title") }}</h3>
+      <p class="hint">{{ t("profile.github_hint") }}</p>
+      <a class="button-link" href="/profile/github">{{ t("profile.button.review_github") }}</a>
+    </div>
+
+    <div class="step-card">
+      <h3>{{ t("profile.sites_title") }}</h3>
+      <form method="post" action="/profile/sites/add" data-loading-text="{{ t('loading.ingesting') }}">
+        <input type="url" name="url" placeholder="https://yoursite.com/projects/x" required>
+        <button type="submit">{{ t("profile.button.ingest_site") }}</button>
+      </form>
+    </div>
+
+    <div class="step-card">
+      <h3>{{ t("profile.ledger_title") }}</h3>
+      {% if ledger %}
+      <table class="table">
+        <thead><tr><th>{{ t("profile.ledger.source_type") }}</th><th>{{ t("profile.ledger.analyzed") }}</th><th>{{ t("profile.ledger.needs_review") }}</th><th>{{ t("profile.ledger.skipped") }}</th><th>{{ t("profile.ledger.total") }}</th></tr></thead>
+        <tbody>
+          {% for source_type, counts in ledger.items() %}
+          <tr>
+            <td>{{ source_type }}</td>
+            <td>{{ counts.analyzed }}</td>
+            <td>{{ counts.needs_review }}</td>
+            <td>{{ counts.skipped }}</td>
+            <td>{{ counts.total }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <p class="empty-state">{{ t("profile.empty") }}</p>
+      {% endif %}
+    </div>
+
+    <div class="step-card">
+      <h3>{{ t("profile.items_title") }} ({{ items | length }})</h3>
+      <table class="table">
+        <thead><tr><th>{{ t("profile.items.type") }}</th><th>{{ t("profile.items.source") }}</th><th>{{ t("profile.items.status") }}</th><th>{{ t("profile.items.purpose") }}</th><th></th></tr></thead>
+        <tbody>
+          {% for item in items %}
+          <tr>
+            <td>{{ item.source_type }}</td>
+            <td class="muted">{{ item.source_ref }}</td>
+            <td>{{ item.status.value }}</td>
+            <td>
+              {% if item.extracted.get("parse_error") %}
+                <span class="badge badge-hard">{{ t("profile.items.failed_prefix") }}</span>
+                <span class="muted">{{ item.extracted.get("parse_error") }}</span>
+              {% else %}
+                {{ item.extracted.get("purpose", "") }}
+              {% endif %}
+            </td>
+            <td>
+              {% if item.extracted.get("parse_error") %}
+              <form method="post" action="/profile/items/{{ item.id }}/retry" style="display:inline">
+                <button type="submit">{{ t("common.retry") }}</button>
+              </form>
+              {% endif %}
+              <form method="post" action="/profile/items/{{ item.id }}/delete" style="display:inline">
+                <button type="submit" class="secondary">{{ t("common.delete") }}</button>
+              </form>
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="5" class="empty-state">{{ t("profile.empty") }}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="step-card">
+      <h3>{{ t("profile.synthesize_title") }}</h3>
+      <p class="hint">{{ t("profile.synthesize_hint") }}</p>
+      <form method="post" action="/profile/synthesize" data-loading-text="{{ t('loading.synthesizing') }}">
+        <button type="submit">{{ t("profile.button.synthesize") }}</button>
+      </form>
+    </div>
+  </details>
+{% endblock %}

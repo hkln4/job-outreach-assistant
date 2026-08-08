@@ -1,11 +1,20 @@
 from fastapi.testclient import TestClient
 
-from app.db import init_db
+from app.db import SessionLocal, init_db
 from app.main import app
+from app.models import CV
 
 
 def setup_module():
     init_db()
+    # the onboarding gate (main.py) redirects everywhere until a CV exists
+    db = SessionLocal()
+    try:
+        if db.query(CV).first() is None:
+            db.add(CV(name="Test Web CV", file_path="data/cv_variants/test_web.pdf"))
+            db.commit()
+    finally:
+        db.close()
 
 
 client = TestClient(app)

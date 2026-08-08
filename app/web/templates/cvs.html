@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}{{ t("cvs.title") }}{% endblock %}
+{% block content %}
+  <h1>{{ t("cvs.title") }}</h1>
+  <p class="hint">{{ t("cvs.hint") }}</p>
+
+  {% if not cvs %}
+  <div class="warning"><h3>{{ t("cvs.required_title") }}</h3><p>{{ t("cvs.required_hint") }}</p></div>
+  {% endif %}
+
+  <form class="card" method="post" action="/cvs" enctype="multipart/form-data">
+    <h2>{{ t("cvs.add_title") }}</h2>
+    <label>{{ t("common.name") }}
+      <input type="text" name="name" required placeholder="{{ t('cvs.field.name_placeholder') }}">
+    </label>
+    <label>{{ t("cvs.field.target_role") }}
+      <input type="text" name="target_role" placeholder="{{ t('cvs.field.target_role_placeholder') }}">
+    </label>
+    <label>{{ t("cvs.field.file") }}
+      <input type="file" name="file" accept=".pdf,.docx" required>
+    </label>
+    <label>{{ t("common.notes") }}
+      <textarea name="notes" rows="2"></textarea>
+    </label>
+    <button type="submit">{{ t("cvs.button.add") }}</button>
+  </form>
+
+  <table class="table">
+    <thead><tr><th>{{ t("common.name") }}</th><th>{{ t("cvs.table.target_role") }}</th><th>{{ t("cvs.table.file") }}</th><th>{{ t("common.notes") }}</th><th></th></tr></thead>
+    <tbody>
+      {% for cv in cvs %}
+      <tr>
+        <td>{{ cv.name }}</td>
+        <td>{{ cv.target_role or "—" }}</td>
+        <td>{{ cv.file_path or "—" }}</td>
+        <td>{{ cv.notes }}</td>
+        <td>
+          <form method="post" action="/cvs/{{ cv.id }}/delete">
+            <button type="submit" class="secondary">{{ t("common.delete") }}</button>
+          </form>
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="5" class="muted">{{ t("cvs.empty") }}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% endblock %}

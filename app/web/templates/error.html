@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="{{ lang }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ t("error.title") }}</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <div class="main-area">
+    <main class="content">
+      <h1>{{ t("error.title") }}</h1>
+
+      <div class="warning">
+        <h3>{{ t("error." ~ category ~ "_title") }}</h3>
+        <p>{{ t("error." ~ category ~ "_body") }}</p>
+      </div>
+
+      <details class="card">
+        <summary>{{ t("error.details") }}</summary>
+        <p class="muted" style="white-space: pre-wrap; margin-top: 0.75rem;">{{ detail }}</p>
+      </details>
+
+      <p><a href="/" class="button-link">{{ t("error.back") }}</a></p>
+    </main>
+  </div>
+</body>
+</html>

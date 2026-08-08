@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}{{ t("profile_github.title") }}{% endblock %}
+{% block content %}
+  <meta http-equiv="refresh" content="1;url={{ next_url }}">
+  <h1>{{ t("profile.ingesting_title") }}</h1>
+  <div class="card">
+    <p>{{ done }} / {{ total }} {{ t("profile.ingesting_suffix") }}</p>
+    <div class="progress-bar"><div class="progress-fill" style="width: {{ (100 * done / total) | round(1) }}%"></div></div>
+    <p class="muted">{{ current_repo }}</p>
+    {% if error %}
+    <div class="warning"><h3>{{ current_repo }}</h3><p>{{ error }}</p></div>
+    {% endif %}
+  </div>
+{% endblock %}

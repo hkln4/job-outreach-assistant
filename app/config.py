@@ -13,15 +13,15 @@ class Settings(BaseSettings):
     # LLM provider (section 8)
     llm_provider: str = "gemini"  # "gemini" | "claude"
     gemini_api_key: str = ""
-    gemini_model: str = "gemini-1.5-flash"
+    gemini_model: str = "gemini-3.6-flash"
     anthropic_api_key: str = ""
-    anthropic_model: str = "claude-fable-5"
+    anthropic_model: str = "claude-haiku-4-5"  # cheapest tier - this app's extraction/drafting tasks don't need more
 
     # Storage
     database_url: str = "sqlite:///data/app.db"
 
-    # GitHub ingestion
-    github_username: str = ""
+    # GitHub ingestion (token identity is used directly - GET /user - so no
+    # username setting is needed; see app/profile_builder/github_ingest.py)
     github_token: str = ""
 
     # Gmail send
