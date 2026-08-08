@@ -41,6 +41,12 @@ def get_db() -> Generator[Session, None, None]:
 # never touched or rebuilt.
 _COLUMN_MIGRATIONS = [
     ("profiles", "cover_letter_template", "TEXT DEFAULT ''"),
+    ("companies", "why_interested", "TEXT DEFAULT ''"),
+    ("companies", "location", "VARCHAR DEFAULT ''"),
+    ("companies", "technopark", "VARCHAR DEFAULT ''"),
+    ("applications", "application_reason", "TEXT DEFAULT ''"),
+    ("applications", "last_checked_at", "DATETIME"),
+    ("applications", "follow_up_due_at", "DATETIME"),
 ]
 
 

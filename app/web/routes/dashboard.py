@@ -3,11 +3,15 @@ review, who needs a draft, who needs research) plus a getting-set-up checklist
 that gets out of the way once done. This is the one page the owner should be
 able to work entirely from - no digging through nested pages to find out what
 to do next."""
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, Depends, Request
+from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from app.applications.reply_check import check_all_awaiting, overdue_applications
 from app.companies.workflow import has_unconfirmed_hard_exclusion
 from app.db import get_db
 from app.models import CV, Application, ApplicationState, Company, CompanyState, Preference, Profile
@@ -17,8 +21,16 @@ router = APIRouter(tags=["dashboard"])
 templates = Jinja2Templates(directory="app/web/templates")
 
 
+def _days_since(moment: datetime | None) -> int | None:
+    if moment is None:
+        return None
+    if moment.tzinfo is None:  # SQLite drops tzinfo on read
+        moment = moment.replace(tzinfo=timezone.utc)
+    return (datetime.now(timezone.utc) - moment).days
+
+
 @router.get("/")
-def dashboard(request: Request, db: Session = Depends(get_db)):
+def dashboard(request: Request, checked: int = -1, replies: int = 0, db: Session = Depends(get_db)):
     company_counts = dict(
         db.query(Company.state, func.count(Company.id)).group_by(Company.state).all()
     )
@@ -55,6 +67,17 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
         if c.research.get("pages") and c.id not in blocked_ids and c.id not in applied_company_ids
     ]
 
+    awaiting_count = (
+        db.query(func.count(Application.id))
+        .filter(Application.state == ApplicationState.AWAITING_REPLY, Application.gmail_thread_id.isnot(None))
+        .scalar()
+        or 0
+    )
+    overdue = [
+        {"application": application, "days_waiting": _days_since(application.sent_at)}
+        for application in overdue_applications(db)
+    ]
+
     return render(
         templates,
         request,
@@ -69,5 +92,18 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
             "needs_research": needs_research,
             "ready_to_draft": ready_to_draft,
             "blocked": blocked,
+            "awaiting_count": awaiting_count,
+            "overdue": overdue,
+            # bulk reply-check result banner (checked == -1 means "no check just ran")
+            "check_summary": {"checked": checked, "replies": replies} if checked >= 0 else None,
         },
+    )
+
+
+@router.post("/check-replies")
+def check_replies(db: Session = Depends(get_db)):
+    """Bulk owner-triggered reply check over every AWAITING_REPLY application."""
+    summary = check_all_awaiting(db)
+    return RedirectResponse(
+        url=f"/?checked={summary['checked']}&replies={summary['replies']}", status_code=303
     )

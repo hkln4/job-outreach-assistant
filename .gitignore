@@ -18,6 +18,16 @@ data/*.sqlite3
 data/cv_variants/
 data/profile_sources/
 
+# Demo recording artifacts (scripts/demo/ - only the scripts are committed)
+scripts/demo/demo.db
+scripts/demo/files/
+scripts/demo/video/
+scripts/demo/frames/
+
+
+TODO.md
+CLAUDE.md
+
 # OAuth / credentials
 credentials.json
 token.json

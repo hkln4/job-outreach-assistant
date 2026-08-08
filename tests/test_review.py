@@ -69,9 +69,13 @@ def test_approve_and_send_blocks_duplicate_recipient(monkeypatch):
 
         try:
             review.approve_and_send(db, second_application, company.contact_email)
-            assert False, "expected dedup ValueError"
-        except ValueError as exc:
-            assert "dedup" in str(exc)
+            assert False, "expected DuplicateSendError"
+        except review.DuplicateSendError as exc:
+            assert exc.prior.id == application.id
+
+        # the owner can still explicitly override after seeing the warning
+        result = review.approve_and_send(db, second_application, company.contact_email, allow_duplicate=True)
+        assert result.gmail_thread_id == "t2"
     finally:
         db.close()
 

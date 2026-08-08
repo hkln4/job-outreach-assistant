@@ -28,15 +28,20 @@ class CompanyState(str, enum.Enum):
 
 
 class ApplicationState(str, enum.Enum):
+    # Approve+send moves PENDING_APPROVAL straight to AWAITING_REPLY (there is no
+    # separate SENT stop), and reject/regenerate loops back to PENDING_APPROVAL.
     DRAFT = "DRAFT"
     PENDING_APPROVAL = "PENDING_APPROVAL"
-    REVISION = "REVISION"
-    SENT = "SENT"
     AWAITING_REPLY = "AWAITING_REPLY"
     REPLIED = "REPLIED"
     INTERVIEW = "INTERVIEW"
     REJECTED = "REJECTED"
     NO_RESPONSE = "NO_RESPONSE"
+
+
+class FollowUpState(str, enum.Enum):
+    PENDING_APPROVAL = "PENDING_APPROVAL"
+    SENT = "SENT"
 
 
 class ProfileItemStatus(str, enum.Enum):
@@ -127,6 +132,12 @@ class Company(Base):
     careers_url: Mapped[str | None] = mapped_column(String, nullable=True)
     contact_email: Mapped[str | None] = mapped_column(String, nullable=True)
     state: Mapped[CompanyState] = mapped_column(Enum(CompanyState), default=CompanyState.APPLICABLE)
+    # Owner-entered context: why this company is on the list at all. Injected
+    # into the drafting prompt so the cover letter reflects the owner's actual
+    # motivation instead of only what the website says.
+    why_interested: Mapped[str] = mapped_column(Text, default="")
+    location: Mapped[str] = mapped_column(String, default="")  # e.g. "Ankara"
+    technopark: Mapped[str] = mapped_column(String, default="")  # e.g. "ODTÜ Teknokent"
     other_channels: Mapped[list] = mapped_column(JSON, default=list)  # feedback-only, e.g. ["form", "linkedin"]
     research: Mapped[dict] = mapped_column(JSON, default=dict)  # cached extracted text + findings w/ source URLs
     preference_check: Mapped[list] = mapped_column(JSON, default=list)
@@ -149,18 +160,44 @@ class Application(Base):
     company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"))
     cv_id: Mapped[int | None] = mapped_column(ForeignKey("cvs.id"), nullable=True)
     target_position: Mapped[str] = mapped_column(String, default="")
+    # Owner-entered reason for reaching out (open/speculative applications have
+    # no job posting - the reason is what the draft is grounded in instead).
+    application_reason: Mapped[str] = mapped_column(Text, default="")
     subject: Mapped[str] = mapped_column(String, default="")
     cover_letter_body: Mapped[str] = mapped_column(Text, default="")
     sources: Mapped[list] = mapped_column(JSON, default=list)  # source URLs backing claims (Evidence Rule)
     state: Mapped[ApplicationState] = mapped_column(Enum(ApplicationState), default=ApplicationState.DRAFT)
     sent_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     last_action_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, onupdate=_utcnow)
+    # When the reply check last ran for this application (manual or automatic).
+    last_checked_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # When the next follow-up is due (sent_at + NO_RESPONSE_DAYS, pushed forward
+    # each time a follow-up is sent). Drives the dashboard "no reply yet" queue.
+    follow_up_due_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     gmail_message_id: Mapped[str | None] = mapped_column(String, nullable=True)
     gmail_thread_id: Mapped[str | None] = mapped_column(String, nullable=True)
     revision_history: Mapped[list] = mapped_column(JSON, default=list)  # [{feedback, previous_body, at}]
 
     company: Mapped["Company"] = relationship(back_populates="applications")
     cv: Mapped["CV | None"] = relationship()
+    follow_ups: Mapped[list["FollowUp"]] = relationship(back_populates="application")
+
+
+class FollowUp(Base):
+    """A short reminder email sent in the SAME Gmail thread as its application
+    when no reply arrived. Human-approved like everything else - never auto-sent."""
+
+    __tablename__ = "follow_ups"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    application_id: Mapped[int] = mapped_column(ForeignKey("applications.id"))
+    body: Mapped[str] = mapped_column(Text, default="")
+    state: Mapped[FollowUpState] = mapped_column(Enum(FollowUpState), default=FollowUpState.PENDING_APPROVAL)
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    gmail_message_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
+
+    application: Mapped["Application"] = relationship(back_populates="follow_ups")
 
 
 class Contact(Base):

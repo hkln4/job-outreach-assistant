@@ -9,6 +9,38 @@
     <a class="button-link secondary" href="/">{{ t("application_detail.back_to_dashboard") }}</a>
   </div>
 
+  {% if wait_seconds %}
+  <div class="warning">
+    <h3>{{ t("application_detail.wait_title") }}</h3>
+    <p>{{ t("application_detail.wait_body_prefix") }} {{ wait_seconds }} {{ t("application_detail.wait_body_suffix") }}</p>
+  </div>
+  {% endif %}
+
+  {% if prior_send and application.state.value == "PENDING_APPROVAL" %}
+  <div class="warning">
+    <h3>{{ t("application_detail.contacted_before_title") }}</h3>
+    <p>
+      {{ t("application_detail.contacted_before_body") }}
+      <a href="/applications/{{ prior_send.id }}">{{ prior_send.target_position or t("common.untitled") }}</a>
+      {% if prior_send.sent_at %}· {{ prior_send.sent_at.strftime("%Y-%m-%d") }}{% endif %}
+      · {{ prior_send.state.value }}
+    </p>
+    {% if duplicate_blocked %}
+    <form method="post" action="/applications/{{ application.id }}/approve" data-loading-text="{{ t('loading.sending') }}">
+      <input type="hidden" name="force" value="1">
+      <button type="submit" class="danger">{{ t("application_detail.button.send_anyway") }}</button>
+    </form>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  {% if application.application_reason %}
+  <div class="card">
+    <p class="hint">{{ t("application_detail.reason_label") }}</p>
+    <p>{{ application.application_reason }}</p>
+  </div>
+  {% endif %}
+
   {% if application.revision_history and application.revision_history[0].reasoning %}
   <div class="ai-note">
     <div class="ai-note-avatar">AI</div>
@@ -63,6 +95,7 @@
       <div class="email-body">{{ application.cover_letter_body }}</div>
       {% if application.state.value == "PENDING_APPROVAL" %}
       <div class="email-body-edit">
+        <input form="edit-form-{{ application.id }}" type="text" name="target_position" value="{{ application.target_position }}" placeholder="{{ t('application_detail.position_placeholder') }}" class="edit-subject-input">
         <input form="edit-form-{{ application.id }}" type="text" name="subject" value="{{ application.subject }}" required class="edit-subject-input">
         <textarea form="edit-form-{{ application.id }}" name="cover_letter_body" required>{{ application.cover_letter_body }}</textarea>
       </div>
@@ -99,9 +132,43 @@
   {% if application.gmail_thread_id %}
   <div class="section card">
     <h2>{{ t("application_detail.reply_check_title") }}</h2>
+    {% if application.last_checked_at %}
+      <p class="hint">{{ t("application_detail.last_checked") }} {{ application.last_checked_at.strftime("%Y-%m-%d %H:%M") }} UTC · {{ t("application_detail.auto_check_hint") }}</p>
+    {% endif %}
     <form method="post" action="/applications/{{ application.id }}/check-reply" data-loading-text="{{ t('loading.checking') }}">
       <button type="submit" class="secondary">{{ t("application_detail.button.check_reply") }}</button>
     </form>
+  </div>
+
+  <div class="section card">
+    <h2>{{ t("application_detail.follow_ups_title") }}</h2>
+    {% for follow_up in follow_ups if follow_up.state.value == "SENT" %}
+      <div class="evidence">
+        <strong>{{ t("application_detail.follow_up_sent_label") }} {{ follow_up.sent_at.strftime("%Y-%m-%d") if follow_up.sent_at }}</strong>
+        <br>{{ follow_up.body }}
+      </div>
+    {% endfor %}
+    {% if pending_follow_up %}
+      <form method="post" action="/applications/{{ application.id }}/follow-ups/{{ pending_follow_up.id }}/edit" id="follow-up-edit-{{ pending_follow_up.id }}">
+        <textarea name="body" rows="5">{{ pending_follow_up.body }}</textarea>
+        <button type="submit" class="secondary">{{ t("common.save") }}</button>
+      </form>
+      <div class="review-panel">
+        <form method="post" action="/applications/{{ application.id }}/follow-ups/{{ pending_follow_up.id }}/send" data-loading-text="{{ t('loading.sending') }}">
+          <button type="submit" {{ "disabled" if not recipient }}>{{ t("application_detail.button.send_follow_up") }}</button>
+        </form>
+        <form method="post" action="/applications/{{ application.id }}/follow-ups/{{ pending_follow_up.id }}/delete">
+          <button type="submit" class="secondary danger">{{ t("common.delete") }}</button>
+        </form>
+      </div>
+    {% elif application.state.value == "AWAITING_REPLY" %}
+      <p class="hint">{{ t("application_detail.follow_up_hint") }}</p>
+      <form method="post" action="/applications/{{ application.id }}/follow-ups/draft" data-loading-text="{{ t('loading.drafting') }}">
+        <button type="submit">{{ t("application_detail.button.draft_follow_up") }}</button>
+      </form>
+    {% elif not follow_ups %}
+      <p class="muted">{{ t("application_detail.no_follow_ups") }}</p>
+    {% endif %}
   </div>
   {% endif %}
 

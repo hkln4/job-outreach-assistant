@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}{{ t("applications.title") }}{% endblock %}
+{% block content %}
+  <h1>{{ t("applications.title") }}</h1>
+  <p class="hint">{{ t("applications.hint") }}</p>
+
+  <form class="inline-form" method="get" action="/applications">
+    <select name="state" onchange="this.form.submit()">
+      <option value="">{{ t("applications.filter.all_states") }}</option>
+      {% for s in states %}
+        <option value="{{ s.value }}" {% if filter_state == s.value %}selected{% endif %}>{{ s.value }}</option>
+      {% endfor %}
+    </select>
+    <select name="company_id" onchange="this.form.submit()">
+      <option value="">{{ t("applications.filter.all_companies") }}</option>
+      {% for company in companies %}
+        <option value="{{ company.id }}" {% if filter_company_id == company.id %}selected{% endif %}>{{ company.name }}</option>
+      {% endfor %}
+    </select>
+  </form>
+
+  <table class="table">
+    <thead>
+      <tr>
+        <th>{{ t("applications.table.company") }}</th>
+        <th>{{ t("company_detail.table.position") }}</th>
+        <th>{{ t("common.state") }}</th>
+        <th>{{ t("company_detail.table.sent") }}</th>
+        <th>{{ t("applications.table.last_action") }}</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for app in applications %}
+      <tr>
+        <td><a href="/companies/{{ app.company.id }}">{{ app.company.name }}</a></td>
+        <td><a href="/applications/{{ app.id }}">{{ app.target_position or t("common.untitled") }}</a></td>
+        <td><span class="badge badge-state">{{ app.state.value }}</span></td>
+        <td>{{ app.sent_at.strftime("%Y-%m-%d") if app.sent_at else "—" }}</td>
+        <td>{{ app.last_action_at.strftime("%Y-%m-%d") }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="5" class="muted">{{ t("applications.empty") }}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% endblock %}

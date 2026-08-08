@@ -17,6 +17,20 @@
     </div>
   </div>
 
+  {% if last_contacted %}
+  <div class="warning">
+    <h3>{{ t("company_detail.contacted_before_title") }}</h3>
+    <p>
+      {{ t("company_detail.contacted_before_body") }}
+      <a href="/applications/{{ last_contacted.id }}">{{ last_contacted.target_position or t("common.untitled") }}</a>
+      {% if last_contacted.sent_at %}· {{ last_contacted.sent_at.strftime("%Y-%m-%d") }}
+        {% if last_contacted_days is not none %}({{ last_contacted_days }} {{ t("company_detail.days_ago") }}){% endif %}
+      {% endif %}
+      · {{ last_contacted.state.value }}
+    </p>
+  </div>
+  {% endif %}
+
   {% if company.preference_check %}
     {% for pc in company.preference_check %}
     <div class="warning">
@@ -69,12 +83,40 @@
       <label>{{ t("common.email") }}
         <input type="email" name="contact_email" value="{{ company.contact_email or '' }}" placeholder="jobs@company.com">
       </label>
+      <label>{{ t("company_detail.why_interested_label") }}
+        <textarea name="why_interested" rows="2" placeholder="{{ t('company_detail.why_interested_placeholder') }}">{{ company.why_interested }}</textarea>
+      </label>
+      <label>{{ t("common.location") }}
+        <input type="text" name="location" value="{{ company.location }}" placeholder="Ankara">
+      </label>
+      <label>{{ t("common.technopark") }}
+        <input type="text" name="technopark" value="{{ company.technopark }}" placeholder="ODTÜ Teknokent" list="technopark-options">
+        <datalist id="technopark-options">
+          <option value="ODTÜ Teknokent"><option value="Bilkent Cyberpark"><option value="Hacettepe Teknokent"><option value="Ankara Teknopark"><option value="Gazi Teknopark">
+        </datalist>
+      </label>
       <label>{{ t("common.notes") }}
         <textarea name="notes" rows="2">{{ company.notes }}</textarea>
       </label>
       <button type="submit">{{ t("common.save") }}</button>
     </form>
   </div>
+
+  {% if company.research.pages and not blocked %}
+  <div class="section card">
+    <h2>{{ t("company_detail.draft_title") }}</h2>
+    <p class="hint">{{ t("company_detail.draft_hint") }}</p>
+    <form method="post" action="/companies/{{ company.id }}/draft" data-loading-text="{{ t('loading.drafting') }}">
+      <label>{{ t("company_detail.field.target_position") }}
+        <input type="text" name="target_position" placeholder="{{ t('company_detail.field.target_position_placeholder') }}">
+      </label>
+      <label>{{ t("company_detail.field.application_reason") }}
+        <textarea name="application_reason" rows="2" placeholder="{{ t('company_detail.field.application_reason_placeholder') }}"></textarea>
+      </label>
+      <button type="submit">{{ t("company_detail.draft_button") }}</button>
+    </form>
+  </div>
+  {% endif %}
 
   {% if applications %}
   <div class="section">
@@ -87,6 +129,51 @@
           <td><a href="/applications/{{ app.id }}">{{ app.target_position or t("common.untitled") }}</a></td>
           <td>{{ app.state.value }}</td>
           <td>{{ app.sent_at.strftime("%Y-%m-%d") if app.sent_at else "—" }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+
+  {% if timeline %}
+  <div class="section card">
+    <h2>{{ t("company_detail.timeline_title") }}</h2>
+    <table class="table">
+      <tbody>
+        {% for event in timeline %}
+        <tr>
+          <td class="muted">{{ event.at.strftime("%Y-%m-%d") if event.at else "—" }}</td>
+          <td>{{ t("company_detail.timeline." ~ event.kind) }}</td>
+          <td><a href="/applications/{{ event.application.id }}">{{ event.application.target_position or t("common.untitled") }}</a></td>
+          <td class="muted">{{ event.application.state.value }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+
+  {% if suggested_contacts %}
+  <div class="section card">
+    <h2>{{ t("company_detail.suggested_contacts_title") }} ({{ suggested_contacts | length }})</h2>
+    <p class="hint">{{ t("company_detail.suggested_contacts_hint") }}</p>
+    <table class="table">
+      <tbody>
+        {% for suggestion in suggested_contacts %}
+        <tr>
+          <td>{{ suggestion.name }}</td>
+          <td class="muted">{{ suggestion.role }}</td>
+          <td>{% if suggestion.email %}{{ suggestion.email }}{% else %}<span class="muted">{{ t("common.none") }}</span>{% endif %}</td>
+          <td class="row-action">
+            <form method="post" action="/companies/{{ company.id }}/contacts/suggested">
+              <input type="hidden" name="name" value="{{ suggestion.name }}">
+              <input type="hidden" name="role" value="{{ suggestion.role }}">
+              <input type="hidden" name="email" value="{{ suggestion.email }}">
+              <input type="hidden" name="source_url" value="{{ suggestion.source_url }}">
+              <button type="submit" class="secondary">{{ t("company_detail.button.add_suggested") }}</button>
+            </form>
+          </td>
         </tr>
         {% endfor %}
       </tbody>

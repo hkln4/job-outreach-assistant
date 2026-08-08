@@ -12,7 +12,7 @@ from app.models import Company, Preference
 from app.preferences.checker import check_company
 
 CHANNEL_SYSTEM_PROMPT = """Based on this company website text (home page + careers/about/\
-contact pages if available), do three things:
+contact pages if available), do four things:
 1. Write a short summary (2-4 sentences) of what this company actually does - its product/\
 service, industry, and anything notable about hiring/open roles if mentioned. Base it ONLY \
 on the given text - never invent or assume anything not stated, and never rely on the \
@@ -24,11 +24,16 @@ online application form, LinkedIn, or kariyer.net for job applications.
 address, or a general contact address if that's the only one given). Only report an email \
 that is literally present in the given text - never guess or construct one (e.g. do not \
 invent info@<domain> if it isn't actually written on the page). If none is present, use null.
+4. List individual people literally named in the text (team/about/management pages) who \
+could be relevant for a job application - founders, CTO, engineering leads, HR/recruiting. \
+For each: name, role as written, and email ONLY if that person's own email is literally in \
+the text (else null). Never guess or construct names, roles, or emails. Empty list if none.
 Output ONLY valid JSON, this exact shape:
-{"summary": string, "channels": [string], "contact_email": string | null}
+{"summary": string, "channels": [string], "contact_email": string | null, \
+"people": [{"name": string, "role": string, "email": string | null}]}
 """
 
-CHANNEL_FALLBACK = {"summary": "", "channels": [], "contact_email": None}
+CHANNEL_FALLBACK = {"summary": "", "channels": [], "contact_email": None, "people": []}
 
 
 def research_company(db: Session, llm: LLMProvider, company: Company) -> Company:
@@ -64,9 +69,28 @@ def research_company(db: Session, llm: LLMProvider, company: Company) -> Company
             }
         )
 
+    # Contact suggestions (evidence-first): only people literally named on the
+    # fetched pages, surfaced in the UI for the owner to confirm into Contacts.
+    # No LinkedIn scraping, no enrichment providers (those stay v2).
+    suggested_contacts = []
+    for person in channel_data.get("people", []) or []:
+        name = (person.get("name") or "").strip()
+        if not name:
+            continue
+        email = (person.get("email") or "").strip()
+        suggested_contacts.append(
+            {
+                "name": name,
+                "role": (person.get("role") or "").strip(),
+                "email": email if validate_email(email) else "",
+                "source_url": primary_source_url,
+            }
+        )
+
     company.research = {
         "pages": result["pages"],
         "summary": channel_data.get("summary", ""),
+        "suggested_contacts": suggested_contacts,
         "fetched_at": datetime.now(timezone.utc).isoformat(),
     }
     company.other_channels = channel_data.get("channels", [])

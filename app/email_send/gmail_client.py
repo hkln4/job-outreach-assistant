@@ -93,6 +93,49 @@ def send_email(to: str, subject: str, body_text: str, attachment_path: str | Non
     return {"id": sent["id"], "threadId": sent["threadId"]}
 
 
+def send_reply(
+    thread_id: str,
+    prior_gmail_message_id: str,
+    to: str,
+    subject: str,
+    body_text: str,
+) -> dict:
+    """Sends a follow-up INSIDE an existing thread. Gmail only groups a sent
+    message into a thread when the API threadId is set AND the RFC 2822
+    In-Reply-To/References headers point at the prior message AND the subject
+    matches - so the original message's Message-ID header is fetched first.
+    Returns {"id", "threadId"}."""
+    if not validate_email(to):
+        raise ValueError(f"Invalid recipient address: {to!r}")
+
+    service = get_gmail_service()
+    prior = (
+        service.users()
+        .messages()
+        .get(userId="me", id=prior_gmail_message_id, format="metadata", metadataHeaders=["Message-ID"])
+        .execute()
+    )
+    prior_headers = {h["name"].lower(): h["value"] for h in prior.get("payload", {}).get("headers", [])}
+    rfc_message_id = prior_headers.get("message-id", "")
+
+    if not subject.lower().startswith("re:"):
+        subject = f"Re: {subject}"
+
+    message = MIMEMultipart()
+    message["to"] = to
+    message["subject"] = subject
+    if rfc_message_id:
+        message["In-Reply-To"] = rfc_message_id
+        message["References"] = rfc_message_id
+    message.attach(MIMEText(body_text))
+
+    raw = base64.urlsafe_b64encode(message.as_bytes()).decode()
+    sent = (
+        service.users().messages().send(userId="me", body={"raw": raw, "threadId": thread_id}).execute()
+    )
+    return {"id": sent["id"], "threadId": sent["threadId"]}
+
+
 def thread_has_reply(thread_id: str) -> bool:
     """Headers-only check (no message body fetched): does this thread contain
     a message not sent by the owner?"""

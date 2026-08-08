@@ -57,8 +57,6 @@ def test_regenerate_draft_appends_revision_history_and_resets_state():
         company = _seed(db)
         llm = FakeLLMProvider(DRAFT_JSON)
         application = create_draft_application(db, llm, company)
-        application.state = ApplicationState.REVISION
-        db.commit()
 
         revised_json = DRAFT_JSON.replace("Dear Acme, ...", "Dear Acme, revised body.")
         llm2 = FakeLLMProvider(revised_json)

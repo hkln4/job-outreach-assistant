@@ -20,6 +20,54 @@
   </div>
   {% endif %}
 
+  {% if check_summary %}
+  <div class="card">
+    <p>
+      {{ check_summary.checked }} {{ t("dashboard.check_summary.checked") }} ·
+      {{ check_summary.replies }} {{ t("dashboard.check_summary.replies") }}
+    </p>
+  </div>
+  {% endif %}
+
+  {% if awaiting_count %}
+  <div class="section card">
+    <h2>{{ t("dashboard.section.awaiting_reply") }} ({{ awaiting_count }})</h2>
+    <form method="post" action="/check-replies" data-loading-text="{{ t('loading.checking') }}">
+      <button type="submit" class="secondary">{{ t("dashboard.button.check_replies") }}</button>
+    </form>
+  </div>
+  {% endif %}
+
+  {% if overdue %}
+  <div class="section card">
+    <h2>{{ t("dashboard.section.overdue") }} ({{ overdue | length }})</h2>
+    <p class="hint">{{ t("dashboard.overdue_hint") }}</p>
+    <table class="table">
+      <tbody>
+        {% for row in overdue %}
+        <tr>
+          <td><a href="/applications/{{ row.application.id }}">{{ row.application.company.name }}</a></td>
+          <td class="muted">{{ row.application.target_position or t("common.untitled") }}</td>
+          <td class="muted">{% if row.days_waiting is not none %}{{ row.days_waiting }} {{ t("dashboard.days_no_reply") }}{% endif %}</td>
+          <td class="row-action">
+            <form method="post" action="/applications/{{ row.application.id }}/follow-ups/draft" data-loading-text="{{ t('loading.drafting') }}">
+              <button type="submit">{{ t("dashboard.button.draft_follow_up") }}</button>
+            </form>
+          </td>
+          <td class="row-action"><a class="button-link secondary" href="/companies/{{ row.application.company.id }}">{{ t("dashboard.button.contacts") }}</a></td>
+          <td class="row-action">
+            <form method="post" action="/applications/{{ row.application.id }}/state">
+              <input type="hidden" name="state" value="NO_RESPONSE">
+              <button type="submit" class="secondary danger">{{ t("dashboard.button.mark_no_response") }}</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+
   {% if pending_review %}
   <div class="section card">
     <h2>{{ t("dashboard.section.pending_review") }} ({{ pending_review | length }})</h2>
@@ -93,7 +141,7 @@
   </div>
   {% endif %}
 
-  {% if not pending_review and not ready_to_draft and not needs_research and not blocked %}
+  {% if not pending_review and not ready_to_draft and not needs_research and not blocked and not overdue %}
   <div class="card">
     <p class="empty-state">
       {% if total_companies == 0 %}

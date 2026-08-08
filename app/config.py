@@ -29,6 +29,15 @@ class Settings(BaseSettings):
     gmail_token_path: str = "token.json"
     gmail_sender_address: str = ""
 
+    # Outreach cadence
+    # After this many days with no reply, an AWAITING_REPLY application is
+    # surfaced on the dashboard as overdue (follow up / escalate / mark
+    # NO_RESPONSE - always the owner's call, never automatic).
+    no_response_days: int = 14
+    # Deliverability (CLAUDE.md section 9): minimum gap between two outgoing
+    # sends, so approving several drafts in a row doesn't burst-send.
+    send_delay_seconds: int = 60
+
     # App server
     app_host: str = "127.0.0.1"
     app_port: int = 8000

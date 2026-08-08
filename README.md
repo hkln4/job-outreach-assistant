@@ -5,6 +5,18 @@ curated list of target companies into tailored, human-approved application
 emails, tracks every application, and escalates to individual employees when a
 company doesn't respond. Full spec in [CLAUDE.md](CLAUDE.md).
 
+## Demo
+
+![End-to-end demo: dashboard, profile, preferences, adding a company (auto research + preference check), drafting, reject-with-feedback, approve-and-send, blocked hard exclusion, and the follow-up queue](docs/demo.gif)
+
+The walkthrough above runs the real UI end-to-end: dashboard action queue ->
+profile & preferences -> adding a company (research + preference check run
+automatically) -> AI draft with sources -> reject-with-feedback regeneration ->
+approve & send -> hard-exclusion block -> lifecycle tracking and the follow-up
+queue. All companies, names and emails in it are fictional demo data recorded
+against a throwaway database with the LLM and Gmail stubbed out - nothing was
+actually sent.
+
 ## Status
 
 Full v1 workflow (CLAUDE.md section 10) is implemented end-to-end, plus a

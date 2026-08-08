@@ -15,6 +15,16 @@ their profile and researched company text.
 Rules:
 - Recommend ONE target position and give explicit written reasoning for the choice, \
 grounded in the company text and the owner's target_roles/skills.
+- If an OWNER'S CHOSEN POSITION is given below, use exactly that as target_position - \
+don't substitute your own pick; your reasoning then explains the fit, not the choice.
+- If an OWNER'S REASON FOR APPLYING is given, this is an open/speculative application: \
+there may be no matching job posting at all. Never pretend one exists - write the email \
+as a direct introduction ("I'm reaching out because..."), grounded in that reason, and \
+set target_position to the owner's chosen position or a general role family (e.g. \
+"Backend Engineer - open application").
+- If OWNER'S NOTES ON WHY THIS COMPANY is given, weave that motivation into the "why \
+this company" part - it reflects what actually drew the owner here. Company facts still \
+need source URLs; the owner's own motivation does not.
 - Recommend which CV variant fits best (choose from the given list by exact name) with \
 reasoning.
 - Write "reasoning" as a short note to the owner (not part of the email itself), in three \
@@ -83,7 +93,14 @@ def _resolve_cv(db: Session, cv_choice_name: str) -> CV | None:
     return None
 
 
-def draft_application(db: Session, llm: LLMProvider, company: Company, feedback: str | None = None) -> dict:
+def draft_application(
+    db: Session,
+    llm: LLMProvider,
+    company: Company,
+    feedback: str | None = None,
+    target_position: str = "",
+    application_reason: str = "",
+) -> dict:
     profile = db.query(Profile).first()
     if profile is None:
         raise ValueError("No Profile yet - run the Profile Builder and synthesize first.")
@@ -105,6 +122,12 @@ def draft_application(db: Session, llm: LLMProvider, company: Company, feedback:
         f"AVAILABLE CV VARIANTS:\n{cv_list}\n\n"
         f"COMPANY: {company.name}\n\nCOMPANY RESEARCH TEXT:\n{company_text[:24000]}"
     )
+    if target_position.strip():
+        prompt += f"\n\nOWNER'S CHOSEN POSITION (use exactly this):\n{target_position.strip()}"
+    if application_reason.strip():
+        prompt += f"\n\nOWNER'S REASON FOR APPLYING (open/speculative application):\n{application_reason.strip()}"
+    if company.why_interested.strip():
+        prompt += f"\n\nOWNER'S NOTES ON WHY THIS COMPANY:\n{company.why_interested.strip()}"
     if profile.cover_letter_template.strip():
         prompt += f"\n\nOWNER'S COVER LETTER TEMPLATE (follow its structure/tone closely):\n{profile.cover_letter_template.strip()}"
     if feedback:
@@ -120,14 +143,23 @@ def draft_application(db: Session, llm: LLMProvider, company: Company, feedback:
     return data
 
 
-def create_draft_application(db: Session, llm: LLMProvider, company: Company) -> Application:
-    result = draft_application(db, llm, company)
+def create_draft_application(
+    db: Session,
+    llm: LLMProvider,
+    company: Company,
+    target_position: str = "",
+    application_reason: str = "",
+) -> Application:
+    result = draft_application(
+        db, llm, company, target_position=target_position, application_reason=application_reason
+    )
     cv = _resolve_cv(db, result.get("cv_choice_name", ""))
 
     application = Application(
         company_id=company.id,
         cv_id=cv.id if cv else None,
-        target_position=result.get("target_position", ""),
+        target_position=target_position.strip() or result.get("target_position", ""),
+        application_reason=application_reason.strip(),
         subject=result.get("subject", ""),
         cover_letter_body=result.get("cover_letter_body", ""),
         sources=result.get("sources", []),
@@ -141,7 +173,15 @@ def create_draft_application(db: Session, llm: LLMProvider, company: Company) ->
 
 
 def regenerate_draft(db: Session, llm: LLMProvider, application: Application, feedback: str) -> Application:
-    result = draft_application(db, llm, application.company, feedback=feedback)
+    # Carry the owner's original intent (reason / open-application mode) into
+    # every regeneration - feedback refines the email, not the reason for it.
+    result = draft_application(
+        db,
+        llm,
+        application.company,
+        feedback=feedback,
+        application_reason=application.application_reason,
+    )
     cv = _resolve_cv(db, result.get("cv_choice_name", ""))
 
     # Index 0 always holds the CURRENT draft's reasoning (read by the AI-notes

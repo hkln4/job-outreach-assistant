@@ -11,10 +11,11 @@ from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
+from app.applications.review import SENT_STATES
 from app.companies.workflow import research_company_safe
 from app.db import get_db
 from app.llm.base import LLMProvider
-from app.models import Company, CompanyState
+from app.models import Application, Company, CompanyState
 from app.web.deps import get_llm
 from app.web.render import render
 
@@ -23,9 +24,40 @@ templates = Jinja2Templates(directory="app/web/templates")
 
 
 @router.get("")
-def list_companies(request: Request, db: Session = Depends(get_db)):
-    companies = db.query(Company).order_by(Company.created_at.desc()).all()
-    return render(templates, request, "companies.html", {"companies": companies, "states": list(CompanyState)})
+def list_companies(
+    request: Request,
+    technopark: str = "",
+    uncontacted: int = 0,
+    db: Session = Depends(get_db),
+):
+    """Company list with the outreach-CRM filters: by technopark and by
+    "never actually emailed yet" (e.g. ODTÜ Teknokent companies not contacted)."""
+    query = db.query(Company)
+    if technopark:
+        query = query.filter(Company.technopark == technopark)
+    companies = query.order_by(Company.created_at.desc()).all()
+
+    contacted_ids = {
+        row[0]
+        for row in db.query(Application.company_id).filter(Application.state.in_(SENT_STATES)).distinct()
+    }
+    if uncontacted:
+        companies = [c for c in companies if c.id not in contacted_ids]
+
+    technoparks = sorted({c.technopark for c in db.query(Company).all() if c.technopark})
+    return render(
+        templates,
+        request,
+        "companies.html",
+        {
+            "companies": companies,
+            "states": list(CompanyState),
+            "contacted_ids": contacted_ids,
+            "technoparks": technoparks,
+            "filter_technopark": technopark,
+            "filter_uncontacted": bool(uncontacted),
+        },
+    )
 
 
 @router.post("")
@@ -34,6 +66,8 @@ def create_company(
     website_url: str = Form(""),
     contact_email: str = Form(""),
     notes: str = Form(""),
+    location: str = Form(""),
+    technopark: str = Form(""),
     db: Session = Depends(get_db),
     llm: LLMProvider = Depends(get_llm),
 ):
@@ -42,6 +76,8 @@ def create_company(
         website_url=website_url.strip() or None,
         contact_email=contact_email.strip() or None,
         notes=notes.strip(),
+        location=location.strip(),
+        technopark=technopark.strip(),
         state=CompanyState.APPLICABLE,
     )
     db.add(company)
