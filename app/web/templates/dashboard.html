@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}Dashboard{% endblock %}
+{% block content %}
+  <h1>Dashboard</h1>
+  <div class="stat-grid">
+    <div class="stat-card">
+      <div class="stat-value">{{ total_companies }}</div>
+      <div class="stat-label">Companies tracked</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value">{{ applicable_count }}</div>
+      <div class="stat-label">Marked APPLICABLE</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value">{{ total_applications }}</div>
+      <div class="stat-label">Applications sent/drafted</div>
+    </div>
+  </div>
+
+  <p class="hint">
+    Start by adding companies on the <a href="/companies">Companies</a> page.
+    The Profile Builder, preference checks, and drafting workflow are not wired up yet -
+    see CLAUDE.md section 10 for the build order.
+  </p>
+{% endblock %}

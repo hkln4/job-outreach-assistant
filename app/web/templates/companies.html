@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}Companies{% endblock %}
+{% block content %}
+  <h1>Companies</h1>
+
+  <form class="card" method="post" action="/companies">
+    <h2>Add a company</h2>
+    <label>Name
+      <input type="text" name="name" required>
+    </label>
+    <label>Website URL
+      <input type="url" name="website_url" placeholder="https://example.com">
+    </label>
+    <label>Notes
+      <textarea name="notes" rows="2"></textarea>
+    </label>
+    <button type="submit">Add company</button>
+  </form>
+
+  <table class="table">
+    <thead>
+      <tr>
+        <th>Name</th>
+        <th>Website</th>
+        <th>State</th>
+        <th>Notes</th>
+        <th>Added</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for company in companies %}
+      <tr>
+        <td>{{ company.name }}</td>
+        <td>
+          {% if company.website_url %}
+            <a href="{{ company.website_url }}" target="_blank" rel="noopener">{{ company.website_url }}</a>
+          {% else %}
+            <span class="muted">none</span>
+          {% endif %}
+        </td>
+        <td>
+          <form method="post" action="/companies/{{ company.id }}/state">
+            <select name="state" onchange="this.form.submit()">
+              {% for s in states %}
+                <option value="{{ s.value }}" {% if company.state == s %}selected{% endif %}>{{ s.value }}</option>
+              {% endfor %}
+            </select>
+          </form>
+        </td>
+        <td>{{ company.notes }}</td>
+        <td>{{ company.created_at.strftime("%Y-%m-%d") }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="5" class="muted">No companies yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% endblock %}

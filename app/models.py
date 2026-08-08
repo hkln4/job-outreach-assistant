@@ -1,0 +1,176 @@
+"""
+Entities and state machines, per CLAUDE.md sections 6 and 7.
+
+JSON-shaped fields (skills[], source_urls[], research, preference_check[], etc.)
+are stored as SQLite JSON columns rather than normalized child tables - this is a
+single-user app and those fields are always read/written as a whole per item.
+"""
+import enum
+from datetime import datetime, timezone
+
+from sqlalchemy import JSON, DateTime, Enum, ForeignKey, String, Text
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+from app.db import Base
+
+
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+# --- State machines (section 7) ---
+
+
+class CompanyState(str, enum.Enum):
+    APPLICABLE = "APPLICABLE"
+    ON_HOLD = "ON_HOLD"
+    REJECTED = "REJECTED"
+
+
+class ApplicationState(str, enum.Enum):
+    DRAFT = "DRAFT"
+    PENDING_APPROVAL = "PENDING_APPROVAL"
+    REVISION = "REVISION"
+    SENT = "SENT"
+    AWAITING_REPLY = "AWAITING_REPLY"
+    REPLIED = "REPLIED"
+    INTERVIEW = "INTERVIEW"
+    REJECTED = "REJECTED"
+    NO_RESPONSE = "NO_RESPONSE"
+
+
+class ProfileItemStatus(str, enum.Enum):
+    ANALYZED = "analyzed"
+    SKIPPED = "skipped"
+    NEEDS_REVIEW = "needs_review"
+
+
+class PreferenceType(str, enum.Enum):
+    HARD = "hard"
+    SOFT = "soft"
+
+
+class ContactState(str, enum.Enum):
+    NOT_CONTACTED = "NOT_CONTACTED"
+    DRAFT = "DRAFT"
+    SENT = "SENT"
+    REPLIED = "REPLIED"
+    NO_RESPONSE = "NO_RESPONSE"
+
+
+# --- Entities (section 6) ---
+
+
+class Profile(Base):
+    """The owner's durable, reviewed profile - one row, built by the Profile Builder."""
+
+    __tablename__ = "profiles"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    summary: Mapped[str] = mapped_column(Text, default="")
+    skills: Mapped[list] = mapped_column(JSON, default=list)  # [{skill, evidence_source}]
+    target_roles: Mapped[list] = mapped_column(JSON, default=list)  # [str]
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, onupdate=_utcnow)
+
+
+class ProfileItem(Base):
+    """One per source item ingested by the Profile Builder (repo / CV / page / LinkedIn)."""
+
+    __tablename__ = "profile_items"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    source_type: Mapped[str] = mapped_column(String)  # "github_repo" | "cv" | "linkedin" | "site"
+    source_ref: Mapped[str] = mapped_column(String)  # repo full_name, file path, or URL
+    extracted: Mapped[dict] = mapped_column(JSON, default=dict)  # {purpose, stack, role, highlights}
+    status: Mapped[ProfileItemStatus] = mapped_column(
+        Enum(ProfileItemStatus), default=ProfileItemStatus.NEEDS_REVIEW
+    )
+    source_urls: Mapped[list] = mapped_column(JSON, default=list)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
+
+
+class Preference(Base):
+    """Owner constraint checked against every company during research (section 4)."""
+
+    __tablename__ = "preferences"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    description: Mapped[str] = mapped_column(Text)
+    type: Mapped[PreferenceType] = mapped_column(Enum(PreferenceType))
+    signals: Mapped[list] = mapped_column(JSON, default=list)  # optional keywords/notes
+
+
+class CV(Base):
+    """A CV variant available for attachment to applications."""
+
+    __tablename__ = "cvs"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String)
+    target_role: Mapped[str] = mapped_column(String, default="")
+    file_path: Mapped[str] = mapped_column(String)
+    notes: Mapped[str] = mapped_column(Text, default="")
+
+
+class Company(Base):
+    """A manually curated target company (section 5 step 1)."""
+
+    __tablename__ = "companies"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String)
+    website_url: Mapped[str | None] = mapped_column(String, nullable=True)
+    domain: Mapped[str | None] = mapped_column(String, nullable=True)
+    careers_url: Mapped[str | None] = mapped_column(String, nullable=True)
+    contact_email: Mapped[str | None] = mapped_column(String, nullable=True)
+    state: Mapped[CompanyState] = mapped_column(Enum(CompanyState), default=CompanyState.APPLICABLE)
+    other_channels: Mapped[list] = mapped_column(JSON, default=list)  # feedback-only, e.g. ["form", "linkedin"]
+    research: Mapped[dict] = mapped_column(JSON, default=dict)  # cached extracted text + findings w/ source URLs
+    preference_check: Mapped[list] = mapped_column(JSON, default=list)
+    # [{preference_id, matched, severity, evidence_snippet, source_url, confidence}]
+    notes: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
+
+    applications: Mapped[list["Application"]] = relationship(back_populates="company")
+    contacts: Mapped[list["Contact"]] = relationship(back_populates="company")
+
+
+class Application(Base):
+    """One application to one company (section 5 steps 3-6)."""
+
+    __tablename__ = "applications"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"))
+    cv_id: Mapped[int | None] = mapped_column(ForeignKey("cvs.id"), nullable=True)
+    target_position: Mapped[str] = mapped_column(String, default="")
+    subject: Mapped[str] = mapped_column(String, default="")
+    cover_letter_body: Mapped[str] = mapped_column(Text, default="")
+    sources: Mapped[list] = mapped_column(JSON, default=list)  # source URLs backing claims (Evidence Rule)
+    state: Mapped[ApplicationState] = mapped_column(Enum(ApplicationState), default=ApplicationState.DRAFT)
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_action_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, onupdate=_utcnow)
+    gmail_message_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    gmail_thread_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    revision_history: Mapped[list] = mapped_column(JSON, default=list)  # [{feedback, previous_body, at}]
+
+    company: Mapped["Company"] = relationship(back_populates="applications")
+    cv: Mapped["CV | None"] = relationship()
+
+
+class Contact(Base):
+    """Employee fallback contact (section 5 step 7). Manually entered in v1."""
+
+    __tablename__ = "contacts"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"))
+    name: Mapped[str] = mapped_column(String)
+    role: Mapped[str] = mapped_column(String, default="")
+    email: Mapped[str] = mapped_column(String)
+    source_url: Mapped[str | None] = mapped_column(String, nullable=True)
+    added_manually: Mapped[bool] = mapped_column(default=True)
+    state: Mapped[ContactState] = mapped_column(Enum(ContactState), default=ContactState.NOT_CONTACTED)
+    application_id: Mapped[int | None] = mapped_column(ForeignKey("applications.id"), nullable=True)
+
+    company: Mapped["Company"] = relationship(back_populates="contacts")
