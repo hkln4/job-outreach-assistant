@@ -45,10 +45,14 @@ dashboard-centric UI redesign on top of it:
   compact chat-style feedback box (send button, not a wall of text) that
   regenerates the draft via AI. Approve is disabled until a recipient email and
   a CV are both resolved.
+- **LinkedIn research** (optional, off by default): per company, how many people
+  work there, what they actually do, whether the company still posts, what it
+  lists as open, and who is worth contacting - the manual LinkedIn check that
+  vetting used to depend on. See [LinkedIn research](#linkedin-research-optional).
 - Gmail send with dedup, reply checking, employee-contact escalation.
 - EN/TR interface (cookie-based toggle), loading spinners on every
   LLM-triggering action so nothing looks frozen mid-request.
-- 40 passing tests (`tests/`), including route-level end-to-end flow tests.
+- 122 passing tests (`tests/`), including route-level end-to-end flow tests.
 
 **To actually use it**, set `GEMINI_API_KEY` in `.env` - everything that calls
 the LLM (ingestion extraction, preference checks, drafting) needs it; without
@@ -86,6 +90,46 @@ paste a cover letter template) -> **Preferences** (add constraints) ->
 **Companies** (add one with its website - research runs automatically) ->
 **Dashboard** (start the application, review the draft, approve & send).
 
+## LinkedIn research (optional)
+
+Off by default. When enabled, each company page gets a LinkedIn card: how many
+people LinkedIn actually lists (not the company's own size bracket), a breakdown
+of what they do, whether the company has posted recently, the openings LinkedIn
+lists next to what their own careers page said, and the people worth contacting.
+Those people flow into the same confirm-before-it-counts table as site-found
+contacts; LinkedIn never exposes email addresses, so they stay un-escalatable
+until you fill one in.
+
+Decision-makers don't show up on the unfiltered employees page, so research also
+searches that page for each term in `LINKEDIN_PEOPLE_KEYWORDS` (CEO, CTO, müdür,
+insan kaynakları, HR, founder by default) - the same thing as typing them into
+the people tab's search box. Each term costs one more page load; shorten the
+list to go faster, or empty it to skip the targeted search.
+
+The company's LinkedIn URL is picked up automatically from the LinkedIn icon on
+their own website during normal research. For companies added before that
+existed, the card has a paste box and a "look for it on their website" button
+that re-reads just their social icons - no LLM, no LinkedIn traffic.
+
+**Use a throwaway LinkedIn account.** This drives a real browser session, which
+LinkedIn's terms forbid and which can get an account restricted. That is why the
+feature is opt-in, runs one company per click (never on add, never in bulk), and
+only ever reads company pages - it does not message anyone or send connection
+requests.
+
+```bash
+# 1. install uv (provides uvx): https://docs.astral.sh/uv/getting-started/installation/
+# 2. log the throwaway account in once - the session persists at ~/.linkedin-mcp/profile/
+uvx mcp-server-linkedin@latest --login
+# 3. in .env:
+#    LINKEDIN_RESEARCH_ENABLED=true
+```
+
+A run takes a few minutes (a real browser loading eight LinkedIn pages) and the
+request blocks for that long on purpose - it is one owner-triggered action, not a
+background job. If the session expires, the company page shows the error and
+re-running `--login` fixes it.
+
 ## Test
 
 ```bash
@@ -111,12 +155,12 @@ app/
   llm/                    provider-agnostic LLM interface (section 8)
   profile_builder/        CV/LinkedIn/GitHub/site ingestion, coverage ledger, synthesis
   preferences/             hard/soft constraint checker (section 4)
-  companies/                site+careers/about/contact fetch, research workflow (section 5)
+  companies/                site+careers/about/contact fetch, research workflow, LinkedIn research (section 5)
   applications/               drafting, CV resolution, review/approve/reject, escalation (section 5)
   email_send/                  Gmail OAuth2 send + reply check (section 5, 9)
   web/                           FastAPI routes + Jinja2 templates + i18n (review UI)
 scripts/
   init_db.py            manual DB init
   gmail_smoke_test.py    manual OAuth + send verification
-tests/                 pytest suite (40 tests)
+tests/                 pytest suite (122 tests)
 ```

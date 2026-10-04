@@ -267,6 +267,10 @@ select {
 
 /* --- Buttons --- */
 
+/* the display rules on button/.button-link etc. would otherwise override the
+   UA's display:none for the hidden attribute (used by the bulk-add JS) */
+[hidden] { display: none !important; }
+
 button, .button-link {
   display: inline-block;
   background: var(--accent);
@@ -329,6 +333,10 @@ button.danger:hover { background: var(--danger-soft); }
 .table td.row-action { width: 1%; white-space: nowrap; text-align: right; }
 .table td.row-action form { margin: 0; }
 .table td.row-action button, .table td.row-action .button-link { padding: 0.4rem 0.85rem; font-size: 0.82rem; }
+/* Fill-in-the-blank forms inside a row (e.g. a LinkedIn contact's missing email) */
+.table .inline-form { margin-bottom: 0.35rem; }
+.table .inline-form input { flex: 1 1 160px; }
+.table .hint { margin: 0; }
 
 /* --- Dashboard --- */
 
@@ -819,3 +827,53 @@ details + details { margin-top: -0.75rem; }
   .content { padding: 1.25rem; }
   .table { display: block; overflow-x: auto; }
 }
+
+/* --- Companies page: add status + bulk add --- */
+
+.add-status {
+  list-style: none;
+  padding: 0;
+  margin: 0.5rem 0 1rem;
+  font-size: 0.9rem;
+}
+.add-status li { padding: 0.2rem 0; }
+
+/* base look (border/radius/focus) comes from the shared .card textarea rules */
+.bulk-add textarea {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 0.85rem;
+  resize: vertical;
+}
+.bulk-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin: 0.75rem 0;
+}
+.bulk-actions .hint { margin: 0; }
+
+/* long owner-pasted URLs/emails must never stretch the companies table off-page */
+.table td.cell-email {
+  max-width: 145px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* the company's site lives under its name as a small second line */
+.table td.cell-name .cell-site {
+  display: block;
+  max-width: 190px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.78rem;
+  color: var(--fg-muted);
+  text-decoration: none;
+}
+.table td.cell-name .cell-site:hover { text-decoration: underline; }
+.table td.cell-date { white-space: nowrap; }
+/* safety net: if the table still can't fit, it scrolls inside this wrapper
+   instead of pushing past the page edge */
+.table-wrap { overflow-x: auto; }
+/* slightly tighter cells so the 7-column companies table fits the content width */
+.table-wrap .table th, .table-wrap .table td { padding: 0.65rem 0.6rem; }

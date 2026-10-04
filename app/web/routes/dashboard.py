@@ -12,7 +12,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.applications.reply_check import check_all_awaiting, overdue_applications
-from app.companies.workflow import has_unconfirmed_hard_exclusion
+from app.companies.workflow import has_unconfirmed_hard_exclusion, has_usable_research
 from app.db import get_db
 from app.models import CV, Application, ApplicationState, Company, CompanyState, Preference, Profile
 from app.web.render import render
@@ -58,13 +58,16 @@ def dashboard(request: Request, checked: int = -1, replies: int = 0, db: Session
     applicable_companies = (
         db.query(Company).filter(Company.state == CompanyState.APPLICABLE).order_by(Company.id.desc()).all()
     )
-    needs_research = [c for c in applicable_companies if not c.research.get("pages")]
+    # Research that fetched pages but extracted no text belongs in "needs
+    # research", not "ready to draft" - there is nothing to write a grounded
+    # letter from, so offering the draft button only leads to a failure.
+    needs_research = [c for c in applicable_companies if not has_usable_research(c)]
     blocked = [c for c in applicable_companies if has_unconfirmed_hard_exclusion(c)]
     blocked_ids = {c.id for c in blocked}
     ready_to_draft = [
         c
         for c in applicable_companies
-        if c.research.get("pages") and c.id not in blocked_ids and c.id not in applied_company_ids
+        if has_usable_research(c) and c.id not in blocked_ids and c.id not in applied_company_ids
     ]
 
     awaiting_count = (

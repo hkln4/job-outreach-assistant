@@ -4,7 +4,7 @@
   <h1>{{ t("companies.title") }}</h1>
   <p class="hint">{{ t("companies.add_hint") }}</p>
 
-  <form class="inline-form" method="post" action="/companies" data-loading-text="{{ t('loading.researching') }}">
+  <form class="inline-form" id="add-company-form" method="post" action="/companies">
     <input type="text" name="name" placeholder="{{ t('common.name') }}" required>
     <input type="url" name="website_url" placeholder="{{ t('companies.field.website_placeholder') }}">
     <input type="email" name="contact_email" placeholder="jobs@company.com">
@@ -15,6 +15,20 @@
     </datalist>
     <button type="submit">{{ t("companies.button.add") }}</button>
   </form>
+  <ul class="add-status" id="add-status" hidden></ul>
+
+  <details class="section card bulk-add" id="bulk-add">
+    <summary>{{ t("companies.bulk.title") }}</summary>
+    <div>
+      <textarea id="bulk-text" rows="6" spellcheck="false" placeholder="{{ t('companies.bulk.placeholder') }}"></textarea>
+      <div class="bulk-actions">
+        <button type="button" class="secondary" id="bulk-parse-btn">{{ t("companies.bulk.parse_button") }}</button>
+        <button type="button" id="bulk-add-btn" hidden>{{ t("companies.bulk.add_button") }}</button>
+        <span id="bulk-summary" class="hint"></span>
+      </div>
+      <div id="bulk-preview"></div>
+    </div>
+  </details>
 
   {% if technoparks or filter_uncontacted or filter_technopark %}
   <form class="inline-form" method="get" action="/companies">
@@ -31,62 +45,49 @@
   </form>
   {% endif %}
 
-  <table class="table">
-    <thead>
-      <tr>
-        <th>{{ t("common.name") }}</th>
-        <th>{{ t("common.website") }}</th>
-        <th>{{ t("common.email") }}</th>
-        <th>{{ t("common.location") }}</th>
-        <th>{{ t("common.state") }}</th>
-        <th>{{ t("companies.table.contacted") }}</th>
-        <th>{{ t("companies.table.added") }}</th>
-        <th></th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for company in companies %}
-      <tr>
-        <td><a href="/companies/{{ company.id }}">{{ company.name }}</a></td>
-        <td>
-          {% if company.website_url %}
-            <a href="{{ company.website_url }}" target="_blank" rel="noopener">{{ company.website_url }}</a>
-          {% else %}
-            <span class="muted">{{ t("common.none") }}</span>
-          {% endif %}
-        </td>
-        <td>
-          {% if company.contact_email %}
-            {{ company.contact_email }}
-          {% else %}
-            <span class="badge badge-hard">{{ t("common.none") }}</span>
-          {% endif %}
-        </td>
-        <td>
-          {% if company.technopark %}{{ company.technopark }}{% elif company.location %}{{ company.location }}{% else %}<span class="muted">—</span>{% endif %}
-        </td>
-        <td>
-          <form method="post" action="/companies/{{ company.id }}/state">
-            <select name="state" onchange="this.form.submit()">
-              {% for s in states %}
-                <option value="{{ s.value }}" {% if company.state == s %}selected{% endif %}>{{ s.value }}</option>
-              {% endfor %}
-            </select>
-          </form>
-        </td>
-        <td>
-          {% if company.id in contacted_ids %}<span class="badge badge-state">✓</span>{% else %}<span class="muted">—</span>{% endif %}
-        </td>
-        <td>{{ company.created_at.strftime("%Y-%m-%d") }}</td>
-        <td class="row-action">
-          <form method="post" action="/companies/{{ company.id }}/delete" onsubmit="return confirm('{{ t('company_detail.delete_confirm') }}');">
-            <button type="submit" class="secondary danger">{{ t("common.delete") }}</button>
-          </form>
-        </td>
-      </tr>
-      {% else %}
-      <tr><td colspan="8" class="muted">{{ t("companies.empty") }}</td></tr>
-      {% endfor %}
-    </tbody>
-  </table>
+  <div class="table-wrap">
+    <table class="table">
+      <thead>
+        <tr>
+          <th>{{ t("common.name") }}</th>
+          <th>{{ t("common.email") }}</th>
+          <th>{{ t("common.location") }}</th>
+          <th>{{ t("common.state") }}</th>
+          <th>{{ t("companies.table.contacted") }}</th>
+          <th>{{ t("companies.table.added") }}</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody id="companies-tbody">
+        {% for company in companies %}
+          {% include "_company_row.html" %}
+        {% else %}
+        <tr id="companies-empty-row"><td colspan="7" class="muted">{{ t("companies.empty") }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <script id="companies-i18n" type="application/json">
+    {
+      "researching": {{ t("loading.researching") | tojson }},
+      "added": {{ t("companies.status.added") | tojson }},
+      "research_failed": {{ t("companies.status.research_failed") | tojson }},
+      "duplicate": {{ t("companies.status.duplicate") | tojson }},
+      "failed": {{ t("companies.status.failed") | tojson }},
+      "row_ok": {{ t("companies.bulk.row_ok") | tojson }},
+      "row_missing_website": {{ t("companies.bulk.row_missing_website") | tojson }},
+      "row_missing_name": {{ t("companies.bulk.row_missing_name") | tojson }},
+      "row_duplicate_in_batch": {{ t("companies.bulk.row_duplicate_in_batch") | tojson }},
+      "row_already_exists": {{ t("companies.bulk.row_already_exists") | tojson }},
+      "waiting": {{ t("companies.bulk.waiting") | tojson }},
+      "preview_summary": {{ t("companies.bulk.preview_summary") | tojson }},
+      "done_summary": {{ t("companies.bulk.done_summary") | tojson }},
+      "col_name": {{ t("common.name") | tojson }},
+      "col_website": {{ t("common.website") | tojson }},
+      "col_email": {{ t("common.email") | tojson }},
+      "col_status": {{ t("common.state") | tojson }}
+    }
+  </script>
+  <script defer src="/static/companies.js"></script>
 {% endblock %}

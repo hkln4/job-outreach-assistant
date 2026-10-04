@@ -6,7 +6,14 @@
       <h1>{{ application.company.name }}</h1>
       <p class="muted">{{ application.target_position or t("common.untitled") }} &middot; <span class="badge badge-state">{{ application.state.value }}</span></p>
     </div>
-    <a class="button-link secondary" href="/">{{ t("application_detail.back_to_dashboard") }}</a>
+    <div class="dash-header-actions">
+      <a class="button-link secondary" href="/">{{ t("application_detail.back_to_dashboard") }}</a>
+      {% if application.state.value in ("DRAFT", "PENDING_APPROVAL") %}
+      <form method="post" action="/applications/{{ application.id }}/delete" onsubmit="return confirm('{{ t('application_detail.discard_confirm') }}');">
+        <button type="submit" class="secondary danger">{{ t("application_detail.discard_button") }}</button>
+      </form>
+      {% endif %}
+    </div>
   </div>
 
   {% if wait_seconds %}
@@ -84,6 +91,7 @@
       </div>
       {% if application.state.value == "PENDING_APPROVAL" %}
       <div class="email-toolbar">
+        <span id="unsaved-badge" class="badge badge-soft" hidden>⚠ {{ t("application_detail.unsaved_badge") }}</span>
         <details class="edit-toggle">
           <summary title="{{ t('application_detail.edit_summary') }}">✎ {{ t("common.edit") }}</summary>
           <form method="post" action="/applications/{{ application.id }}/edit" id="edit-form-{{ application.id }}" data-loading-text="{{ t('loading.saving') }}">
@@ -192,5 +200,12 @@
       <div class="evidence"><strong>{{ t("application_detail.feedback_label") }}</strong> {{ rev.feedback }}</div>
     {% endfor %}
   </details>
+  {% endif %}
+
+  {% if application.state.value == "PENDING_APPROVAL" %}
+  <script id="draft-guard-i18n" type="application/json">
+    { "unsavedBlocked": {{ t("application_detail.unsaved_blocked") | tojson }} }
+  </script>
+  <script defer src="/static/draft_guard.js"></script>
   {% endif %}
 {% endblock %}

@@ -44,6 +44,8 @@ _COLUMN_MIGRATIONS = [
     ("companies", "why_interested", "TEXT DEFAULT ''"),
     ("companies", "location", "VARCHAR DEFAULT ''"),
     ("companies", "technopark", "VARCHAR DEFAULT ''"),
+    ("companies", "linkedin_url", "VARCHAR"),
+    ("companies", "linkedin_research", "JSON DEFAULT '{}'"),
     ("applications", "application_reason", "TEXT DEFAULT ''"),
     ("applications", "last_checked_at", "DATETIME"),
     ("applications", "follow_up_due_at", "DATETIME"),

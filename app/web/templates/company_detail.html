@@ -17,20 +17,6 @@
     </div>
   </div>
 
-  {% if last_contacted %}
-  <div class="warning">
-    <h3>{{ t("company_detail.contacted_before_title") }}</h3>
-    <p>
-      {{ t("company_detail.contacted_before_body") }}
-      <a href="/applications/{{ last_contacted.id }}">{{ last_contacted.target_position or t("common.untitled") }}</a>
-      {% if last_contacted.sent_at %}· {{ last_contacted.sent_at.strftime("%Y-%m-%d") }}
-        {% if last_contacted_days is not none %}({{ last_contacted_days }} {{ t("company_detail.days_ago") }}){% endif %}
-      {% endif %}
-      · {{ last_contacted.state.value }}
-    </p>
-  </div>
-  {% endif %}
-
   {% if company.preference_check %}
     {% for pc in company.preference_check %}
     <div class="warning">
@@ -46,11 +32,122 @@
   {% endif %}
 
   <div class="section card">
+    <h2>{{ t("company_detail.applications_title") }}</h2>
+    {% if last_contacted %}
+      <p class="hint">
+        {{ t("company_detail.contacted_before_body") }}
+        <a href="/applications/{{ last_contacted.id }}">{{ last_contacted.target_position or t("common.untitled") }}</a>
+        {% if last_contacted.sent_at %}· {{ last_contacted.sent_at.strftime("%Y-%m-%d") }}
+          {% if last_contacted_days is not none %}({{ last_contacted_days }} {{ t("company_detail.days_ago") }}){% endif %}
+        {% endif %}
+        · {{ last_contacted.state.value }}
+      </p>
+    {% endif %}
+    {% if applications %}
+    <table class="table">
+      <thead><tr><th>{{ t("company_detail.table.position") }}</th><th>{{ t("common.state") }}</th><th>{{ t("company_detail.table.sent") }}</th></tr></thead>
+      <tbody>
+        {% for app in applications %}
+        <tr>
+          <td><a href="/applications/{{ app.id }}">{{ app.target_position or t("common.untitled") }}</a></td>
+          <td>{{ app.state.value }}</td>
+          <td>{{ app.sent_at.strftime("%Y-%m-%d") if app.sent_at else "—" }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+      <p class="muted">{{ t("company_detail.no_applications") }}</p>
+    {% endif %}
+    {% if research_usable and not blocked %}
+    <details class="edit-toggle">
+      <summary>+ {{ t("company_detail.draft_button") }}</summary>
+      <form method="post" action="/companies/{{ company.id }}/draft" data-loading-text="{{ t('loading.drafting') }}">
+        <p class="hint">{{ t("company_detail.draft_hint") }}</p>
+        <label>{{ t("company_detail.field.target_position") }}
+          <input type="text" name="target_position" placeholder="{{ t('company_detail.field.target_position_placeholder') }}">
+        </label>
+        <label>{{ t("company_detail.field.application_reason") }}
+          <textarea name="application_reason" rows="2" placeholder="{{ t('company_detail.field.application_reason_placeholder') }}"></textarea>
+        </label>
+        <button type="submit">{{ t("company_detail.draft_button") }}</button>
+      </form>
+    </details>
+    {% endif %}
+  </div>
+
+  <div class="section card">
     <h2>{{ t("company_detail.research_title") }}</h2>
-    {% if company.research.pages %}
+    {% if company.research.pages and not research_usable and not company.research.error %}
+      <p class="hint">⚠ {{ t("company_detail.research_empty") }}
+        {% if company.website_url %}<a href="{{ company.website_url }}" target="_blank" rel="noopener">{{ company.website_url }}</a>{% endif %}
+      </p>
+    {% endif %}
+    {% if research_usable %}
       {% if company.research.summary %}
         <p>{{ company.research.summary }}</p>
       {% endif %}
+
+      {% if company.research.open_positions %}
+        <h3>{{ t("company_detail.open_positions_title") }} ({{ company.research.open_positions | length }})</h3>
+        <ul>
+          {% for pos in company.research.open_positions %}
+            <li><strong>{{ pos.title }}</strong>{% if pos.details %} — <span class="muted">{{ pos.details }}</span>{% endif %}</li>
+          {% endfor %}
+        </ul>
+      {% endif %}
+
+      {% if company.research.careers %}
+        <p>
+          {% if company.research.careers.has_careers_page %}
+            <span class="badge badge-state">{{ t("company_detail.careers.has_page") }}</span>
+          {% else %}
+            <span class="badge">{{ t("company_detail.careers.no_page") }}</span>
+          {% endif %}
+          {% if company.research.careers.application_form %}
+            <span class="badge badge-soft">{{ t("company_detail.careers.form") }}</span>
+          {% endif %}
+          {% if company.research.careers.external_portal %}
+            <span class="badge badge-soft">{{ t("company_detail.careers.portal") }} {{ company.research.careers.external_portal }}</span>
+          {% endif %}
+        </p>
+        {% if company.research.careers.application_form or company.research.careers.external_portal %}
+          <p class="hint">{{ t("company_detail.careers.channel_note") }}</p>
+        {% endif %}
+        {% if company.research.careers.page_looks_thin %}
+          <p class="hint">⚠ {{ t("company_detail.careers.thin_warning") }}
+            {% if company.careers_url %}<a href="{{ company.careers_url }}" target="_blank" rel="noopener">{{ company.careers_url }}</a>{% endif %}
+          </p>
+        {% endif %}
+        {% if company.research.careers.notes %}
+          <p class="hint">{{ company.research.careers.notes }}</p>
+        {% endif %}
+      {% endif %}
+
+      {% if company.research.fit and company.research.fit.recommended_position %}
+        <div class="evidence">
+          <strong>{{ t("company_detail.fit_title") }}:</strong> {{ company.research.fit.recommended_position }}<br>
+          {{ company.research.fit.reasoning }}
+        </div>
+      {% endif %}
+
+      {% if company.research.emails %}
+        <details>
+          <summary>{{ t("company_detail.emails_title") }} ({{ company.research.emails | length }})</summary>
+          <p class="hint">{{ t("company_detail.emails_hint") }}</p>
+          <ul class="link-list">
+            {% for e in company.research.emails %}
+              <li>
+                {{ e.email }}
+                {% if e.kind == "hr" %}<span class="badge badge-state">{{ t("company_detail.email_kind_hr") }}</span>
+                {% else %}<span class="badge">{{ t("company_detail.email_kind_general") }}</span>{% endif %}
+                {% if e.context %}<span class="muted">— {{ e.context }}</span>{% endif %}
+              </li>
+            {% endfor %}
+          </ul>
+        </details>
+      {% endif %}
+
       <p class="hint">{{ t("company_detail.fetched") }} {{ company.research.fetched_at }}</p>
       <details>
         <summary>{{ t("company_detail.sources_summary") }} ({{ company.research.pages | length }})</summary>
@@ -74,6 +171,125 @@
     </form>
   </div>
 
+  {% if linkedin_enabled %}
+  {% set li = company.linkedin_research %}
+  <div class="section card">
+    <h2>{{ t("company_detail.linkedin.title") }}</h2>
+    {% if li.fetched_at and not li.error %}
+      <p>
+        {% if li.employees_listed %}<span class="badge badge-state">{{ li.employees_listed }}</span>{% endif %}
+        {% if li.industry %}<span class="badge">{{ li.industry }}</span>{% endif %}
+        {% if li.headquarters %}<span class="badge">{{ li.headquarters }}</span>{% endif %}
+        {% if li.founded %}<span class="badge">{{ li.founded }}</span>{% endif %}
+      </p>
+
+      {% if li.positions_summary %}
+        <h3>{{ t("company_detail.linkedin.positions_title") }}</h3>
+        <ul>
+          {% for group in li.positions_summary %}
+            <li>
+              <strong>{{ group.group }}</strong>{% if group.count is not none %} — {{ group.count }}{% endif %}
+              <span class="muted">({{ t("company_detail.linkedin.from_breakdown") if group.source == "linkedin_breakdown" else t("company_detail.linkedin.from_titles") }})</span>
+            </li>
+          {% endfor %}
+        </ul>
+      {% endif %}
+
+      {% if li.activity and (li.activity.assessment or li.activity.last_post_date) %}
+        <h3>{{ t("company_detail.linkedin.activity_title") }}</h3>
+        <p>
+          {% if li.activity.is_active is true %}<span class="badge badge-state">{{ t("company_detail.linkedin.active") }}</span>
+          {% elif li.activity.is_active is false %}<span class="badge badge-soft">{{ t("company_detail.linkedin.inactive") }}</span>{% endif %}
+          {% if li.activity.last_post_date %}<span class="muted">{{ t("company_detail.linkedin.last_post") }} {{ li.activity.last_post_date }}</span>{% endif %}
+        </p>
+        {% if li.activity.assessment %}<p>{{ li.activity.assessment }}</p>{% endif %}
+      {% endif %}
+
+      {% if li.jobs %}
+        <h3>{{ t("company_detail.linkedin.jobs_title") }} ({{ li.jobs | length }})</h3>
+        <ul>
+          {% for job in li.jobs %}
+            <li><strong>{{ job.title }}</strong>{% if job.location %} — <span class="muted">{{ job.location }}</span>{% endif %}</li>
+          {% endfor %}
+        </ul>
+        <p class="hint">{{ t("company_detail.linkedin.jobs_crosscheck") }}</p>
+      {% endif %}
+
+      {% if li.tool_errors %}
+        <p class="hint">⚠ {{ t("company_detail.linkedin.partial") }}</p>
+        <div class="evidence">
+          {% for tool, message in li.tool_errors.items() %}{{ tool }}: {{ message }}<br>{% endfor %}
+        </div>
+      {% endif %}
+
+      <p class="hint">{{ t("company_detail.fetched") }} {{ li.fetched_at }}
+        {% if li.source_url %}· <a href="{{ li.source_url }}" target="_blank" rel="noopener">{{ li.source_url }}</a>{% endif %}
+      </p>
+    {% elif li.error %}
+      <p class="muted">{{ t("company_detail.linkedin.failed") }}</p>
+      <div class="evidence">{{ li.error }}</div>
+    {% elif company.linkedin_url %}
+      <p class="muted">{{ t("company_detail.linkedin.not_researched") }}</p>
+    {% endif %}
+
+    {% if company.linkedin_url %}
+      <form method="post" action="/companies/{{ company.id }}/linkedin-research" data-loading-text="{{ t('loading.linkedin') }}">
+        <button type="submit" class="secondary">{{ t("company_detail.linkedin.rerun") if li.fetched_at else t("company_detail.linkedin.run") }}</button>
+      </form>
+    {% else %}
+      {# No LinkedIn page known yet - most companies link theirs from their own
+         site, so offer that lookup (cheap, no LinkedIn traffic) before asking
+         the owner to go find the URL by hand. #}
+      <p class="muted">{{ t("company_detail.linkedin.no_url_hint") }}</p>
+      {% if linkedin_not_found %}
+        <p class="hint">⚠ {{ t("company_detail.linkedin.url_not_found") }}</p>
+      {% endif %}
+      <form method="post" action="/companies/{{ company.id }}/linkedin-url" class="inline-form">
+        <input type="url" name="linkedin_url" placeholder="https://www.linkedin.com/company/acme/" required>
+        <button type="submit" class="secondary">{{ t("common.save") }}</button>
+      </form>
+      {% if company.website_url %}
+        <form method="post" action="/companies/{{ company.id }}/linkedin-url/find" data-loading-text="{{ t('loading.searching') }}">
+          <button type="submit" class="secondary">{{ t("company_detail.linkedin.find_on_site") }}</button>
+        </form>
+      {% endif %}
+    {% endif %}
+  </div>
+  {% endif %}
+
+  {% if suggested_people %}
+  <div class="section card">
+    <h2>{{ t("company_detail.suggested_contacts_title") }} ({{ suggested_people | length }})</h2>
+    <p class="hint">{{ t("company_detail.suggested_contacts_hint") }}</p>
+    <table class="table">
+      <tbody>
+        {% for suggestion in suggested_people %}
+        <tr>
+          <td>{{ suggestion.name }}</td>
+          <td class="muted">{{ suggestion.role }}</td>
+          <td>
+            {% if suggestion.source == "linkedin" %}
+              <a href="{{ suggestion.source_url }}" target="_blank" rel="noopener">{{ t("company_detail.linkedin.title") }}</a>
+            {% else %}
+              <span class="muted">{{ t("company_detail.source_site") }}</span>
+            {% endif %}
+          </td>
+          <td>{% if suggestion.email %}{{ suggestion.email }}{% else %}<span class="muted">{{ t("common.none") }}</span>{% endif %}</td>
+          <td class="row-action">
+            <form method="post" action="/companies/{{ company.id }}/contacts/suggested">
+              <input type="hidden" name="name" value="{{ suggestion.name }}">
+              <input type="hidden" name="role" value="{{ suggestion.role }}">
+              <input type="hidden" name="email" value="{{ suggestion.email }}">
+              <input type="hidden" name="source_url" value="{{ suggestion.source_url }}">
+              <button type="submit" class="secondary">{{ t("company_detail.button.add_suggested") }}</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
   <div class="section card">
     <h2>{{ t("company_detail.details_title") }}</h2>
     {% if not company.contact_email %}
@@ -83,6 +299,11 @@
       <label>{{ t("common.email") }}
         <input type="email" name="contact_email" value="{{ company.contact_email or '' }}" placeholder="jobs@company.com">
       </label>
+      {% if linkedin_enabled %}
+      <label>{{ t("company_detail.linkedin.url_label") }}
+        <input type="url" name="linkedin_url" value="{{ company.linkedin_url or '' }}" placeholder="https://www.linkedin.com/company/acme/">
+      </label>
+      {% endif %}
       <label>{{ t("company_detail.why_interested_label") }}
         <textarea name="why_interested" rows="2" placeholder="{{ t('company_detail.why_interested_placeholder') }}">{{ company.why_interested }}</textarea>
       </label>
@@ -102,84 +323,6 @@
     </form>
   </div>
 
-  {% if company.research.pages and not blocked %}
-  <div class="section card">
-    <h2>{{ t("company_detail.draft_title") }}</h2>
-    <p class="hint">{{ t("company_detail.draft_hint") }}</p>
-    <form method="post" action="/companies/{{ company.id }}/draft" data-loading-text="{{ t('loading.drafting') }}">
-      <label>{{ t("company_detail.field.target_position") }}
-        <input type="text" name="target_position" placeholder="{{ t('company_detail.field.target_position_placeholder') }}">
-      </label>
-      <label>{{ t("company_detail.field.application_reason") }}
-        <textarea name="application_reason" rows="2" placeholder="{{ t('company_detail.field.application_reason_placeholder') }}"></textarea>
-      </label>
-      <button type="submit">{{ t("company_detail.draft_button") }}</button>
-    </form>
-  </div>
-  {% endif %}
-
-  {% if applications %}
-  <div class="section">
-    <h2>{{ t("company_detail.applications_title") }}</h2>
-    <table class="table">
-      <thead><tr><th>{{ t("company_detail.table.position") }}</th><th>{{ t("common.state") }}</th><th>{{ t("company_detail.table.sent") }}</th></tr></thead>
-      <tbody>
-        {% for app in applications %}
-        <tr>
-          <td><a href="/applications/{{ app.id }}">{{ app.target_position or t("common.untitled") }}</a></td>
-          <td>{{ app.state.value }}</td>
-          <td>{{ app.sent_at.strftime("%Y-%m-%d") if app.sent_at else "—" }}</td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-  {% endif %}
-
-  {% if timeline %}
-  <div class="section card">
-    <h2>{{ t("company_detail.timeline_title") }}</h2>
-    <table class="table">
-      <tbody>
-        {% for event in timeline %}
-        <tr>
-          <td class="muted">{{ event.at.strftime("%Y-%m-%d") if event.at else "—" }}</td>
-          <td>{{ t("company_detail.timeline." ~ event.kind) }}</td>
-          <td><a href="/applications/{{ event.application.id }}">{{ event.application.target_position or t("common.untitled") }}</a></td>
-          <td class="muted">{{ event.application.state.value }}</td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-  {% endif %}
-
-  {% if suggested_contacts %}
-  <div class="section card">
-    <h2>{{ t("company_detail.suggested_contacts_title") }} ({{ suggested_contacts | length }})</h2>
-    <p class="hint">{{ t("company_detail.suggested_contacts_hint") }}</p>
-    <table class="table">
-      <tbody>
-        {% for suggestion in suggested_contacts %}
-        <tr>
-          <td>{{ suggestion.name }}</td>
-          <td class="muted">{{ suggestion.role }}</td>
-          <td>{% if suggestion.email %}{{ suggestion.email }}{% else %}<span class="muted">{{ t("common.none") }}</span>{% endif %}</td>
-          <td class="row-action">
-            <form method="post" action="/companies/{{ company.id }}/contacts/suggested">
-              <input type="hidden" name="name" value="{{ suggestion.name }}">
-              <input type="hidden" name="role" value="{{ suggestion.role }}">
-              <input type="hidden" name="email" value="{{ suggestion.email }}">
-              <input type="hidden" name="source_url" value="{{ suggestion.source_url }}">
-              <button type="submit" class="secondary">{{ t("company_detail.button.add_suggested") }}</button>
-            </form>
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-  {% endif %}
 
   <details class="section card">
     <summary>{{ t("company_detail.contacts_title") }} ({{ contacts | length }})</summary>
@@ -197,10 +340,16 @@
         <tr>
           <td>{{ contact.name }}</td>
           <td>{{ contact.role }}</td>
-          <td>{{ contact.email }}</td>
+          <td>{{ contact.email or "—" }}</td>
           <td>{{ contact.state.value }}</td>
           <td>
-            {% if contact.state.value == "NOT_CONTACTED" %}
+            {% if not contact.email %}
+            <form method="post" action="/companies/{{ company.id }}/contacts/{{ contact.id }}/email" class="inline-form">
+              <input type="email" name="email" required placeholder="name@company.com">
+              <button type="submit" class="secondary">{{ t("company_detail.button.set_email") }}</button>
+            </form>
+            <p class="hint">{{ t("company_detail.contact_needs_email") }}</p>
+            {% elif contact.state.value == "NOT_CONTACTED" %}
             <form method="post" action="/companies/{{ company.id }}/contacts/{{ contact.id }}/escalate" data-loading-text="{{ t('loading.drafting') }}">
               <button type="submit">{{ t("company_detail.button.escalate") }}</button>
             </form>

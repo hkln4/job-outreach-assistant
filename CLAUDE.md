@@ -35,7 +35,7 @@ Goal: build one durable, detailed, reviewed **profile of the owner**, used as co
 ### Sources & ingestion
 - **Uploaded CVs** (PDF/docx): parse each file fully; each CV is one item.
 - **GitHub** (official API): list ALL repos deterministically. Pre-filter forks/empty repos, then the owner confirms include/exclude (not every repo is a real project). For each included repo, pull README, description, topics, languages, file tree + selected key source files, stars, and recent commits.
-- **LinkedIn**: the owner uploads a profile **PDF export** ("Save to PDF") or data archive; parsed as a document. No LinkedIn scraping.
+- **LinkedIn**: the owner uploads a profile **PDF export** ("Save to PDF") or data archive; parsed as a document. The owner's own LinkedIn data is never scraped - this rule is about the profile. (Company-side LinkedIn research is a separate, flag-gated thing; see section 9.)
 - **Extra sites** (portfolio, blog, personal site): fetch each URL, extract main text; optionally follow project sub-pages with a depth cap.
 
 ### Per-item deep pass
@@ -76,7 +76,7 @@ Scope note: preferences cover things to **avoid or require**. Positive role targ
 
 ## 5. End-to-End Workflow (per company)
 
-1. **Company list (manually curated).** The owner adds target companies and vets them manually (including a manual LinkedIn check for size / whether the company is alive / who to contact). Each company carries a `state`; the system only acts on companies marked `APPLICABLE`.
+1. **Company list (manually curated).** The owner adds target companies and vets them manually. The LinkedIn check that vetting rests on - size, whether the company is alive, who to contact - can be run from the app when LinkedIn research is enabled (section 9); it stays an aid to the owner's judgment, never a verdict. Each company carries a `state`; the system only acts on companies marked `APPLICABLE`.
 2. **Resolve site + fetch + preference check.** Each company's **website URL is provided by the owner** when adding it (name -> URL is not guessed by the backend in v1). The **backend then fetches** that site + the careers page, extracts main text (not raw HTML), trims it, and passes that text to the LLM. Run the **preference check** (section 4) here: if a hard exclusion matches, warn and **block drafting** until the owner confirms. The LLM also reports, as *feedback only*, whether the company uses an application form / LinkedIn / kariyer.net. Retrieval stays in the app - do **not** use the model's own web-search tool. **Email is always the send channel.**
 3. **Recommendation.** Using the owner's **profile** (section 3) plus the company research, the LLM recommends (a) which open position to target and (b) which CV variant to use, with explicit written reasoning.
 4. **Draft.** The LLM writes a company-specific cover-letter email grounded in the profile. **Every company-specific claim must be backed by a source URL** (Evidence Rule). Sources + any preference warnings are shown in the review UI.
@@ -138,7 +138,8 @@ Scope note: preferences cover things to **avoid or require**. Positive role targ
 - **Email is the definitive channel.** Other channels are informational feedback only.
 - **Deliverability.** Validate the recipient address before sending; add a delay between sends; never send to the same company/contact twice (dedup).
 - **Attachments.** Always attach the exact CV variant chosen for that application.
-- **No scraping of protected data.** Fetch only public pages the owner is entitled to read. LinkedIn is ingested only via the owner's uploaded export.
+- **No scraping of protected data.** Fetch only public pages the owner is entitled to read. The owner's own LinkedIn data is ingested only via their uploaded export.
+- **LinkedIn company research** is allowed only under all of these: gated behind `LINKEDIN_RESEARCH_ENABLED` (off by default), triggered by hand for one company at a time (never on company creation, never in a bulk loop), run through `mcp-server-linkedin` (stickerdaniel/linkedin-mcp-server) with a **dedicated throwaway LinkedIn account**, and limited to reading company pages - the messaging and connection-request tools are never called. LinkedIn's terms forbid automated access and the account can be restricted, which is why it is opt-in, low-volume, and kept off the owner's real account. Findings are cached and re-fetched only when the owner asks.
 
 ---
 
@@ -160,11 +161,12 @@ Scope note: preferences cover things to **avoid or require**. Positive role targ
 
 - Automatic name -> website resolution (search-based) with owner confirmation.
 - Automated contact/email discovery + company enrichment via Hunter.io (or Apollo).
-- Automated LinkedIn research (headcount, roles, key contacts).
 - LLM auto-suggesting new companies to add (with owner approval).
 - Follow-up automation and analytics / A-B testing of CV variants.
 
 Design v1 so these slot in later: keep `website_url`, `contact_email`, and `Contact` records source-agnostic, and gate any external-data provider behind a flag.
+
+**Built after v1 (was deferred here):** automated LinkedIn company research - headcount, what the employees do, who to contact, activity signal, and listed openings - under the constraints in section 9.
 
 ---
 

@@ -29,7 +29,9 @@ def test_dashboard_loads():
 def test_add_and_list_company():
     r = client.post(
         "/companies",
-        data={"name": "Acme Robotics", "website_url": "https://acme.example", "notes": "found via LinkedIn"},
+        # domain must be unique: adding a company whose domain is already tracked
+        # (test_drafting seeds acme.example) now redirects to the existing one
+        data={"name": "Acme Robotics", "website_url": "https://acme-robotics.example", "notes": "found via LinkedIn"},
         follow_redirects=True,
     )
     assert r.status_code == 200

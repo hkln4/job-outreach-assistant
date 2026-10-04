@@ -130,6 +130,9 @@ class Company(Base):
     website_url: Mapped[str | None] = mapped_column(String, nullable=True)
     domain: Mapped[str | None] = mapped_column(String, nullable=True)
     careers_url: Mapped[str | None] = mapped_column(String, nullable=True)
+    # Auto-detected from the website's own LinkedIn link during research; the
+    # owner can fill it in or override it by hand when the site has no link.
+    linkedin_url: Mapped[str | None] = mapped_column(String, nullable=True)
     contact_email: Mapped[str | None] = mapped_column(String, nullable=True)
     state: Mapped[CompanyState] = mapped_column(Enum(CompanyState), default=CompanyState.APPLICABLE)
     # Owner-entered context: why this company is on the list at all. Injected
@@ -140,6 +143,10 @@ class Company(Base):
     technopark: Mapped[str] = mapped_column(String, default="")  # e.g. "ODTÜ Teknokent"
     other_channels: Mapped[list] = mapped_column(JSON, default=list)  # feedback-only, e.g. ["form", "linkedin"]
     research: Mapped[dict] = mapped_column(JSON, default=dict)  # cached extracted text + findings w/ source URLs
+    # LinkedIn findings (headcount, roles, people, activity, jobs). Kept apart
+    # from `research` on purpose: the two are refreshed by separate owner
+    # actions, and a failed website research overwrites `research` wholesale.
+    linkedin_research: Mapped[dict] = mapped_column(JSON, default=dict)
     preference_check: Mapped[list] = mapped_column(JSON, default=list)
     # [{preference_id, matched, severity, evidence_snippet, source_url, confidence}]
     hard_exclusion_confirmed: Mapped[bool] = mapped_column(default=False)

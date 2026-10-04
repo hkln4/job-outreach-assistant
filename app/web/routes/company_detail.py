@@ -10,14 +10,24 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
 from datetime import datetime, timezone
+from urllib.parse import urljoin
 
 from app.applications.drafting import create_draft_application
 from app.applications.escalation import create_escalation_draft
 from app.applications.review import SENT_STATES
-from app.companies.workflow import has_unconfirmed_hard_exclusion, research_company_safe
+from app.companies.fetch import find_linkedin_url
+from app.companies.linkedin_fetch import LINKEDIN_BASE
+from app.companies.linkedin_workflow import linkedin_research_company_safe
+from app.companies.workflow import (
+    has_unconfirmed_hard_exclusion,
+    has_usable_research,
+    research_company_safe,
+)
+from app.config import get_settings
 from app.db import get_db
+from app.email_send.gmail_client import validate_email
 from app.llm.base import LLMProvider
-from app.models import Application, Company, Contact, FollowUp, FollowUpState
+from app.models import Application, Company, Contact
 from app.web.deps import get_llm
 from app.web.render import render
 
@@ -32,25 +42,47 @@ def _company_or_404(db: Session, company_id: int) -> Company:
     return company
 
 
-def _build_timeline(applications: list[Application], follow_ups: list[FollowUp]) -> list[dict]:
-    """All outreach touchpoints for this company, newest first - the 'have I
-    talked to these people before, and when?' view."""
-    events = []
-    for application in applications:
-        if application.sent_at is not None:
-            events.append(
-                {"at": application.sent_at, "kind": "application_sent", "application": application}
-            )
-        else:
-            events.append(
-                {"at": application.last_action_at, "kind": "draft", "application": application}
-            )
-    for follow_up in follow_ups:
-        if follow_up.state == FollowUpState.SENT and follow_up.sent_at is not None:
-            events.append(
-                {"at": follow_up.sent_at, "kind": "follow_up_sent", "application": follow_up.application}
-            )
-    return sorted(events, key=lambda e: e["at"] or datetime.min, reverse=True)
+def _suggested_people(company: Company, contacts: list[Contact]) -> list[dict]:
+    """People to consider contacting, from both sources, minus already-added
+    ones. The site and LinkedIn find different kinds of people (a named HR
+    address on a contact page vs. a CTO on LinkedIn) but the owner does the
+    same thing with both, so they share one table and one confirm step.
+
+    LinkedIn people carry no email - LinkedIn never exposes one - so they are
+    deduped by name alone, while site suggestions also dedupe on their address.
+    """
+    existing_emails = {c.email.strip().casefold() for c in contacts if c.email.strip()}
+    existing_names = {c.name.strip().casefold() for c in contacts}
+
+    people = []
+    for suggestion in company.research.get("suggested_contacts", []) or []:
+        name = (suggestion.get("name") or "").strip()
+        email = (suggestion.get("email") or "").strip()
+        if not name or name.casefold() in existing_names:
+            continue
+        if email and email.casefold() in existing_emails:
+            continue
+        people.append({**suggestion, "name": name, "email": email, "source": "site"})
+
+    for person in company.linkedin_research.get("people", []) or []:
+        name = (person.get("name") or "").strip()
+        if not name or name.casefold() in existing_names:
+            continue
+        if any(p["name"].casefold() == name.casefold() for p in people):
+            continue
+        people.append(
+            {
+                "name": name,
+                "role": (person.get("role") or "").strip(),
+                "email": "",
+                # Absolutised on the way in now, but research cached before
+                # that fix stored bare "/in/slug/" paths, which would resolve
+                # against this app instead of LinkedIn.
+                "source_url": urljoin(LINKEDIN_BASE, person.get("profile_url") or ""),
+                "source": "linkedin",
+            }
+        )
+    return people
 
 
 def _days_since(moment: datetime | None) -> int | None:
@@ -62,7 +94,12 @@ def _days_since(moment: datetime | None) -> int | None:
 
 
 @router.get("")
-def company_detail(request: Request, company_id: int, db: Session = Depends(get_db)):
+def company_detail(
+    request: Request,
+    company_id: int,
+    linkedin_not_found: int = 0,
+    db: Session = Depends(get_db),
+):
     company = _company_or_404(db, company_id)
     applications = (
         db.query(Application)
@@ -71,29 +108,13 @@ def company_detail(request: Request, company_id: int, db: Session = Depends(get_
         .all()
     )
     contacts = db.query(Contact).filter(Contact.company_id == company_id).order_by(Contact.id.desc()).all()
-    follow_ups = (
-        db.query(FollowUp)
-        .join(Application, FollowUp.application_id == Application.id)
-        .filter(Application.company_id == company_id)
-        .all()
-    )
 
-    # "Contacted before" warning (section 9 dedup, surfaced BEFORE drafting/sending)
+    # "Contacted before" note (section 9 dedup, surfaced BEFORE drafting/sending)
     last_contacted = None
     for application in applications:
         if application.state in SENT_STATES and application.sent_at is not None:
             if last_contacted is None or application.sent_at > last_contacted.sent_at:
                 last_contacted = application
-
-    # Contact suggestions found on the company's own pages, minus already-added ones
-    existing_emails = {c.email.strip().casefold() for c in contacts}
-    existing_names = {c.name.strip().casefold() for c in contacts}
-    suggested_contacts = [
-        s
-        for s in company.research.get("suggested_contacts", [])
-        if s["name"].strip().casefold() not in existing_names
-        and (not s.get("email") or s["email"].strip().casefold() not in existing_emails)
-    ]
 
     return render(
         templates,
@@ -104,10 +125,12 @@ def company_detail(request: Request, company_id: int, db: Session = Depends(get_
             "applications": applications,
             "contacts": contacts,
             "blocked": has_unconfirmed_hard_exclusion(company),
+            "research_usable": has_usable_research(company),
             "last_contacted": last_contacted,
             "last_contacted_days": _days_since(last_contacted.sent_at) if last_contacted else None,
-            "suggested_contacts": suggested_contacts,
-            "timeline": _build_timeline(applications, follow_ups),
+            "suggested_people": _suggested_people(company, contacts),
+            "linkedin_enabled": get_settings().linkedin_research_enabled,
+            "linkedin_not_found": bool(linkedin_not_found),
         },
     )
 
@@ -119,6 +142,50 @@ def run_research(company_id: int, db: Session = Depends(get_db), llm: LLMProvide
     return RedirectResponse(url=f"/companies/{company_id}", status_code=303)
 
 
+@router.post("/linkedin-research")
+def run_linkedin_research(
+    company_id: int, db: Session = Depends(get_db), llm: LLMProvider = Depends(get_llm)
+):
+    """One company per explicit click - never on create, never in a bulk loop
+    (CLAUDE.md section 9, LinkedIn research rule)."""
+    company = _company_or_404(db, company_id)
+    if get_settings().linkedin_research_enabled:
+        linkedin_research_company_safe(db, llm, company)
+    return RedirectResponse(url=f"/companies/{company_id}", status_code=303)
+
+
+@router.post("/linkedin-url")
+def set_linkedin_url(
+    company_id: int,
+    linkedin_url: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    """Paste the company's LinkedIn page straight into the LinkedIn card,
+    without going through the whole details form further down the page."""
+    company = _company_or_404(db, company_id)
+    company.linkedin_url = linkedin_url.strip() or None
+    db.commit()
+    return RedirectResponse(url=f"/companies/{company_id}", status_code=303)
+
+
+@router.post("/linkedin-url/find")
+def find_linkedin_url_on_site(company_id: int, db: Session = Depends(get_db)):
+    """Look for the LinkedIn link on the company's own site.
+
+    Companies added before LinkedIn research existed have no linkedin_url, and
+    re-running the full research to pick one up would cost an LLM call per
+    company. This just re-reads their site's social icons - seconds, no LLM,
+    no LinkedIn traffic. A miss leaves the field empty for the owner to fill.
+    """
+    company = _company_or_404(db, company_id)
+    found = find_linkedin_url(company.website_url or "")
+    if not found:
+        return RedirectResponse(url=f"/companies/{company_id}?linkedin_not_found=1", status_code=303)
+    company.linkedin_url = found
+    db.commit()
+    return RedirectResponse(url=f"/companies/{company_id}", status_code=303)
+
+
 @router.post("/details")
 def update_details(
     company_id: int,
@@ -127,10 +194,15 @@ def update_details(
     why_interested: str = Form(""),
     location: str = Form(""),
     technopark: str = Form(""),
+    linkedin_url: str | None = Form(None),
     db: Session = Depends(get_db),
 ):
     company = _company_or_404(db, company_id)
     company.contact_email = contact_email.strip() or None
+    # None means the form didn't carry the field at all (LinkedIn research off),
+    # which must leave a stored URL alone; an empty string is the owner clearing it.
+    if linkedin_url is not None:
+        company.linkedin_url = linkedin_url.strip() or None
     company.notes = notes.strip()
     company.why_interested = why_interested.strip()
     company.location = location.strip()
@@ -228,6 +300,23 @@ def add_suggested_contact(
     return RedirectResponse(url=f"/companies/{company_id}", status_code=303)
 
 
+@router.post("/contacts/{contact_id}/email")
+def set_contact_email(
+    company_id: int,
+    contact_id: int,
+    email: str = Form(...),
+    db: Session = Depends(get_db),
+):
+    """Fill in the address for a contact that arrived without one (LinkedIn
+    gives names and roles, never emails). Invalid input is ignored rather than
+    saved - an unsendable address is worse than an empty one."""
+    contact = db.get(Contact, contact_id)
+    if contact is not None and contact.company_id == company_id and validate_email(email.strip()):
+        contact.email = email.strip()
+        db.commit()
+    return RedirectResponse(url=f"/companies/{company_id}", status_code=303)
+
+
 @router.post("/contacts/{contact_id}/escalate")
 def escalate_contact(
     company_id: int,
@@ -236,7 +325,7 @@ def escalate_contact(
     llm: LLMProvider = Depends(get_llm),
 ):
     contact = db.get(Contact, contact_id)
-    if contact is None or contact.company_id != company_id:
+    if contact is None or contact.company_id != company_id or not contact.email.strip():
         return RedirectResponse(url=f"/companies/{company_id}", status_code=303)
     application = create_escalation_draft(db, llm, contact)
     return RedirectResponse(url=f"/applications/{application.id}", status_code=303)

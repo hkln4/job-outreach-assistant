@@ -11,3 +11,8 @@ os.environ.setdefault("GEMINI_API_KEY", "test-key-not-real")
 # Tests send back-to-back; the deliverability gap is exercised explicitly in
 # test_outreach.py with a patched Settings instead.
 os.environ.setdefault("SEND_DELAY_SECONDS", "0")
+# Always start from the off state regardless of the owner's own .env (an env
+# var outranks the .env file), so the "feature is invisible when disabled"
+# tests test the code, not the local config. test_web_linkedin.py flips the
+# Settings object per test to cover the on state.
+os.environ["LINKEDIN_RESEARCH_ENABLED"] = "false"

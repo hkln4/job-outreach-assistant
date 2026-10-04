@@ -12,10 +12,25 @@ from sqlalchemy.orm import Session
 from app.applications.drafting import regenerate_draft
 from app.applications.follow_ups import draft_follow_up, send_follow_up
 from app.applications.reply_check import auto_check_if_due, check_application_reply
-from app.applications.review import DuplicateSendError, SendDelayError, approve_and_send, find_prior_send
+from app.applications.review import (
+    SENT_STATES,
+    DuplicateSendError,
+    SendDelayError,
+    approve_and_send,
+    find_prior_send,
+)
 from app.db import get_db
 from app.llm.base import LLMProvider
-from app.models import CV, Application, ApplicationState, Company, Contact, FollowUp, FollowUpState
+from app.models import (
+    CV,
+    Application,
+    ApplicationState,
+    Company,
+    Contact,
+    ContactState,
+    FollowUp,
+    FollowUpState,
+)
 from app.web.deps import get_llm
 from app.web.render import render
 
@@ -180,6 +195,31 @@ def set_state(application_id: int, state: str = Form(...), db: Session = Depends
     application.state = ApplicationState(state)
     db.commit()
     return RedirectResponse(url=f"/applications/{application_id}", status_code=303)
+
+
+@router.post("/{application_id}/delete")
+def delete_application(application_id: int, db: Session = Depends(get_db)):
+    """Discard a draft that shouldn't have been started - the way back from a
+    mis-click on "start application". Only before it goes out: once sent, the
+    application is history and CLAUDE.md section 5 step 6 keeps it.
+
+    Frees the company to reappear in the dashboard's "ready to draft" queue.
+    """
+    application = _application_or_404(db, application_id)
+    company_id = application.company_id
+    if application.state in SENT_STATES or application.sent_at is not None:
+        return RedirectResponse(url=f"/applications/{application_id}", status_code=303)
+
+    # Neither of these is cleaned up by SQLAlchemy on delete: FollowUp has a
+    # non-nullable FK, and Contact.application_id has no ORM relationship at all
+    # (an escalation draft would leave the contact stuck in DRAFT forever).
+    db.query(FollowUp).filter(FollowUp.application_id == application_id).delete()
+    for contact in db.query(Contact).filter(Contact.application_id == application_id).all():
+        contact.application_id = None
+        contact.state = ContactState.NOT_CONTACTED
+    db.delete(application)
+    db.commit()
+    return RedirectResponse(url=f"/companies/{company_id}", status_code=303)
 
 
 @router.post("/{application_id}/check-reply")

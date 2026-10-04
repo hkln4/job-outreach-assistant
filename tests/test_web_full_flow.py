@@ -10,6 +10,9 @@ from tests.fakes import SequencedLLMProvider
 
 from fastapi.testclient import TestClient
 
+# Fixtures need enough text to read as a real page (see MIN_USABLE_RESEARCH_CHARS).
+PAGE_PAD = " The company works with logistics and manufacturing customers across Turkey, runs its own engineering team in Ankara, and publishes case studies about the systems it has delivered over the past several years."
+
 client = TestClient(app)
 
 
@@ -77,7 +80,7 @@ def test_full_workflow_add_preference_company_research_draft_approve(monkeypatch
         workflow,
         "fetch_company_research",
         lambda website_url, careers_url=None: {
-            "pages": [{"url": website_url, "text": "We build widgets. No defense involvement."}],
+            "pages": [{"url": website_url, "text": "We build widgets. No defense involvement." + PAGE_PAD}],
             "detected_careers_url": None,
         },
     )

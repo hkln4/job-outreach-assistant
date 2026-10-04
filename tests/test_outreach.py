@@ -11,6 +11,9 @@ from app.db import SessionLocal, init_db
 from app.models import CV, Application, ApplicationState, Company, FollowUpState, Profile
 from tests.fakes import FakeLLMProvider
 
+# Fixtures need enough text to read as a real page (see MIN_USABLE_RESEARCH_CHARS).
+PAGE_PAD = " The company works with logistics and manufacturing customers across Turkey, runs its own engineering team in Ankara, and publishes case studies about the systems it has delivered over the past several years."
+
 
 def setup_module():
     init_db()
@@ -144,7 +147,7 @@ def test_open_application_draft_uses_owner_position_and_reason():
             name="OpenAppCo",
             website_url="https://openapp.example",
             why_interested="They do CV work in Python.",
-            research={"pages": [{"url": "https://openapp.example", "text": "We build vision systems."}]},
+            research={"pages": [{"url": "https://openapp.example", "text": "We build vision systems." + PAGE_PAD}]},
         )
         db.add_all([profile, cv, company])
         db.commit()

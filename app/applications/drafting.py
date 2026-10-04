@@ -5,6 +5,7 @@ import json
 
 from sqlalchemy.orm import Session
 
+from app.companies.workflow import has_usable_research
 from app.llm.base import LLMProvider
 from app.llm.json_utils import parse_json_object
 from app.models import CV, Application, ApplicationState, Company, Profile
@@ -41,12 +42,13 @@ you write the email in.
 LETTER TEMPLATE below, closely follow ITS structure, section order, tone, length, and \
 phrasing style - treat it as the owner's preferred voice, not just an example to glance at. \
 Swap in this company's specific details (and the profile's) where the template has \
-company/owner-specific content. If no template was provided, use this default structure:
+company/owner-specific content. If no template was provided, cover these points - but as a \
+natural email, NOT as the same rigid paragraph skeleton every time:
   1. Greeting addressed to the company (or hiring team, if no contact name is known).
-  2. Why this company - 1-2 sentences, grounded in specific, sourced facts about the \
-company (not generic flattery).
-  3. Why the owner - a short paragraph connecting the owner's profile/skills/experience \
-to what the company needs, grounded in the profile.
+  2. Why this position/company - grounded in a specific, sourced fact actually relevant \
+to the position (not generic flattery).
+  3. Why the owner - connecting the owner's most relevant experience to the position, \
+grounded in the profile.
   4. A closing line mentioning the attached CV and inviting next steps.
   5. Sign-off.
 - EVERY company-specific claim (something you say about the company) must be backed by \
@@ -57,6 +59,37 @@ given text.
 (website/job postings) is written in and write the subject and cover letter in that same \
 language. If the company text is ambiguous or mixed, default to Turkish, since most of the \
 companies the owner applies to are Turkish. Do not mix languages within the email.
+- Subject format: "Junior <position> Başvurusu" for Turkish emails, "Junior <position> \
+Application" for English ones - e.g. "Junior ML/AI Engineer Başvurusu". Keep the position \
+name as it's commonly written (job titles usually stay in English even in Turkish subjects).
+
+STYLE RULES (these override any habit of "classic cover letter" writing):
+- The email must never read as if filled in from a cover-letter template. Do not reuse the \
+same paragraph structure or the same sentence patterns across applications.
+- Do not praise the company needlessly. Mention the company only through points that are \
+genuinely relevant to the position and verifiable in the given text. Never compliment its \
+"vision", "mission", "innovative approach", "strong team" or similar generalities.
+- Avoid stock cover-letter phrases in ANY language. Banned examples (Turkish): "özellikle \
+ilgiyle takip ediyorum", "katkı sağlayabileceğime inanıyorum", "kendimi geliştirebileceğim \
+bir ekipte çalışmayı çok isterim", "bilgi ve deneyimlerimle örtüştüğünü düşünüyorum" - and \
+their English equivalents ("I believe I can contribute", "I have been following with great \
+interest", ...).
+- Mention a technology from the posting only if the owner's profile actually shows real \
+experience with it. Never exaggerate or invent experience to fit the posting.
+- Focus on the 1-2 most relevant experiences/projects. Do not cram the whole CV into the \
+email. Instead of listing technologies, say what the owner actually DID with them.
+- There is no obligation to say "I could bring X to you" - if a natural link exists between \
+the owner's experience and the position, just show it directly.
+- Use a learning-motivation paragraph (the "Aynı zamanda..." kind) only when it is \
+genuinely meaningful for that company - not in every email.
+- Keep the email around 250-350 words.
+- Professional but natural language - the way a student/new grad would actually write to a \
+recruiter. No marketing speak, no stiff corporate tone, no artificial confidence.
+- Do not repeat the same word or the same sentence structure back to back.
+- If the owner gave no real reason for wanting this company, use a neutral statement \
+instead of inventing praise.
+- The email's goal is not to impress with big claims; it is to explain briefly and \
+naturally why the owner is applying to this position and why they are relevant to it.
 - Output ONLY valid JSON, this exact shape:
 {"target_position": string, "cv_choice_name": string, "reasoning": string, \
 "subject": string, "cover_letter_body": string, "sources": [string]}
@@ -109,9 +142,19 @@ def draft_application(
     if not cvs:
         raise ValueError("No CV variants configured - add at least one CV first.")
 
+    # Without researched text the model has nothing to ground a company-specific
+    # letter in (Evidence Rule): it either invents one or answers with a request
+    # for the missing information, which then fails as "invalid JSON". Say what
+    # is actually wrong instead.
+    if not has_usable_research(company):
+        raise ValueError(
+            f"Research for {company.name} came back empty - there is no site text to write from. "
+            "Re-run research, or fix the website URL (some sites only render in a browser)."
+        )
+
     company_text = "\n\n---\n\n".join(
         f"[{p['url']}]\n{p['text']}" for p in company.research.get("pages", [])
-    ) or "(no research cached yet - run research first)"
+    )
 
     cv_list = "\n".join(f"- {cv.name} (target_role: {cv.target_role or 'unknown'})" for cv in cvs)
 

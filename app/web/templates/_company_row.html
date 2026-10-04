@@ -1,0 +1,39 @@
+{# One company table row. Included by companies.html and also rendered alone by
+   POST /companies (JSON path) so the page JS can insert the new row without a
+   reload. Expects: company, states, contacted_ids, t. #}
+<tr>
+  <td class="cell-name">
+    <a href="/companies/{{ company.id }}">{{ company.name }}</a>
+    {% if company.website_url %}
+      <a class="cell-site" href="{{ company.website_url }}" target="_blank" rel="noopener" title="{{ company.website_url }}">{{ company.website_url | replace("https://", "") | replace("http://", "") | trim("/") }}</a>
+    {% endif %}
+  </td>
+  <td class="cell-email">
+    {% if company.contact_email %}
+      <span title="{{ company.contact_email }}">{{ company.contact_email }}</span>
+    {% else %}
+      <span class="badge badge-hard">{{ t("common.none") }}</span>
+    {% endif %}
+  </td>
+  <td>
+    {% if company.technopark %}{{ company.technopark }}{% elif company.location %}{{ company.location }}{% else %}<span class="muted">—</span>{% endif %}
+  </td>
+  <td>
+    <form method="post" action="/companies/{{ company.id }}/state">
+      <select name="state" onchange="this.form.submit()">
+        {% for s in states %}
+          <option value="{{ s.value }}" {% if company.state == s %}selected{% endif %}>{{ s.value }}</option>
+        {% endfor %}
+      </select>
+    </form>
+  </td>
+  <td>
+    {% if company.id in contacted_ids %}<span class="badge badge-state">✓</span>{% else %}<span class="muted">—</span>{% endif %}
+  </td>
+  <td class="cell-date">{{ company.created_at.strftime("%Y-%m-%d") }}</td>
+  <td class="row-action">
+    <form method="post" action="/companies/{{ company.id }}/delete" onsubmit="return confirm('{{ t('company_detail.delete_confirm') }}');">
+      <button type="submit" class="secondary danger">{{ t("common.delete") }}</button>
+    </form>
+  </td>
+</tr>

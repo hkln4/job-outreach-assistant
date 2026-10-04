@@ -1,6 +1,6 @@
 # Web / API
 fastapi==0.115.0
-uvicorn[standard]==0.30.6
+uvicorn[standard]==0.32.1  # >=0.31.1 required by mcp
 jinja2==3.1.4
 python-multipart==0.0.9
 
@@ -26,6 +26,10 @@ beautifulsoup4==4.12.3
 
 # GitHub
 PyGithub==2.4.0
+
+# LinkedIn research (MCP client; the server itself runs via uvx, see README).
+# 1.20.0 is the newest line that still accepts fastapi 0.115's starlette<0.39.
+mcp==1.20.0
 
 # Gmail
 google-api-python-client==2.146.0

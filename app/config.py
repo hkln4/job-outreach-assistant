@@ -38,6 +38,27 @@ class Settings(BaseSettings):
     # sends, so approving several drafts in a row doesn't burst-send.
     send_delay_seconds: int = 60
 
+    # LinkedIn company research (flag-gated external-data provider, CLAUDE.md
+    # section 11). Runs stickerdaniel/linkedin-mcp-server over stdio with a
+    # dedicated throwaway LinkedIn account - see README "LinkedIn research".
+    linkedin_research_enabled: bool = False
+    # PyPI name is mcp-server-linkedin (linkedin-mcp-server on PyPI is an
+    # unrelated project). Keep @latest and do not pin: LinkedIn changes its
+    # page structure often and a pinned version silently starts returning
+    # empty data - the server's own docs call this the supported setup.
+    linkedin_mcp_command: str = "uvx mcp-server-linkedin@latest"
+    # Terms searched in the company's LinkedIn people tab to surface people
+    # worth contacting - the unfiltered page returns rank-and-file. One extra
+    # page load per term, so trim the list to go faster. These are search data,
+    # not UI text: Turkish terms are what catch leadership at Ankara companies.
+    linkedin_people_keywords: str = "CEO,CTO,müdür,insan kaynakları,HR,founder"
+    # Whole-run backstop across all the calls above (each call has its own
+    # fixed ceiling in linkedin_fetch.py). Generous on purpose: a browser
+    # loading eight LinkedIn pages is slow.
+    linkedin_mcp_timeout_seconds: int = 900
+    # Pause between tool calls - rate hygiene even on a throwaway account.
+    linkedin_tool_delay_seconds: float = 3.0
+
     # App server
     app_host: str = "127.0.0.1"
     app_port: int = 8000
