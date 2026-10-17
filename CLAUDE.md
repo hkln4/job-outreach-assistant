@@ -168,6 +168,8 @@ Design v1 so these slot in later: keep `website_url`, `contact_email`, and `Cont
 
 **Built after v1 (was deferred here):** automated LinkedIn company research - headcount, what the employees do, who to contact, activity signal, and listed openings - under the constraints in section 9.
 
+**Also built after v1:** company discovery from technopark directories (`/discovery`). The owner imports a directory (built-in readers for ODTÜ Teknokent, Bilkent Cyberpark, Hacettepe Teknokent, OSTİM Teknopark and Ankara Üniversitesi Teknokent, or any directory page they add), the app screens each candidate's homepage (what it does, fit with `target_roles`, preference conflicts with on-site evidence), and only owner-approved candidates become Companies, tagged with city/technopark. Websites come only from the directory itself - name -> URL guessing stays deferred. Every step is owner-triggered; rejected candidates are never suggested again.
+
 ---
 
 ## 12. Suggested Stack (flexible - owner decides)

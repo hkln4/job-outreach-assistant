@@ -19,6 +19,7 @@ from app.companies.fetch import MIN_USABLE_RESEARCH_CHARS, fetch_company_researc
 from app.email_send.gmail_client import validate_email
 from app.llm.base import LLMProvider
 from app.llm.json_utils import parse_json_object
+from app.llm.untrusted import UNTRUSTED_RULE, wrap_untrusted
 from app.models import Company, Preference, Profile
 from app.preferences.checker import check_company
 
@@ -157,8 +158,8 @@ def research_company(db: Session, llm: LLMProvider, company: Company) -> Company
     # 40k chars (~10k tokens): room for the extra job-posting pages the fetch
     # now follows, still well inside cost discipline for a Haiku/Flash call.
     response = llm.generate(
-        prompt=combined_text[:40000] + _profile_context(db),
-        system=RESEARCH_SYSTEM_PROMPT,
+        prompt=wrap_untrusted(combined_text[:40000]) + _profile_context(db),
+        system=RESEARCH_SYSTEM_PROMPT + "\n" + UNTRUSTED_RULE,
         temperature=0.0,
         max_output_tokens=1500,
     )

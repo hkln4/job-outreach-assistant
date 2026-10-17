@@ -49,6 +49,10 @@ _COLUMN_MIGRATIONS = [
     ("applications", "application_reason", "TEXT DEFAULT ''"),
     ("applications", "last_checked_at", "DATETIME"),
     ("applications", "follow_up_due_at", "DATETIME"),
+    ("applications", "evidence", "JSON DEFAULT '[]'"),
+    ("applications", "excluded_evidence_ids", "JSON DEFAULT '[]'"),
+    ("company_candidates", "sector", "VARCHAR DEFAULT ''"),
+    ("company_candidates", "contact_email", "VARCHAR"),
 ]
 
 

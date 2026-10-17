@@ -30,7 +30,7 @@ def _seed_company_and_application(db, contact_email="jobs@acme.example"):
 
 def test_approve_and_send_transitions_to_awaiting_reply(monkeypatch):
     monkeypatch.setattr(
-        review, "send_email", lambda to, subject, body_text, attachment_path=None: {"id": "m1", "threadId": "t1"}
+        review, "send_email", lambda to, subject, body_text, attachment_path=None, attachment_name=None: {"id": "m1", "threadId": "t1"}
     )
 
     db = SessionLocal()
@@ -48,7 +48,7 @@ def test_approve_and_send_transitions_to_awaiting_reply(monkeypatch):
 
 def test_approve_and_send_blocks_duplicate_recipient(monkeypatch):
     monkeypatch.setattr(
-        review, "send_email", lambda to, subject, body_text, attachment_path=None: {"id": "m2", "threadId": "t2"}
+        review, "send_email", lambda to, subject, body_text, attachment_path=None, attachment_name=None: {"id": "m2", "threadId": "t2"}
     )
 
     db = SessionLocal()
@@ -89,5 +89,143 @@ def test_approve_and_send_rejects_invalid_email():
             assert False, "expected invalid-address ValueError"
         except ValueError as exc:
             assert "Invalid recipient" in str(exc)
+    finally:
+        db.close()
+
+
+def _fake_send(calls):
+    def send(to, subject, body_text, attachment_path=None, attachment_name=None):
+        calls.append(to)
+        return {"id": f"m{len(calls)}", "threadId": f"t{len(calls)}"}
+
+    return send
+
+
+def test_an_application_is_never_sent_twice(monkeypatch):
+    calls = []
+    monkeypatch.setattr(review, "send_email", _fake_send(calls))
+
+    db = SessionLocal()
+    try:
+        company, application = _seed_company_and_application(db, contact_email="twice@acme.example")
+        review.approve_and_send(db, application, company.contact_email)
+
+        # Neither a repeat approve nor the duplicate override sends it again.
+        for allow_duplicate in (False, True):
+            try:
+                review.approve_and_send(db, application, company.contact_email, allow_duplicate=allow_duplicate)
+                assert False, "expected AlreadySentError"
+            except review.AlreadySentError:
+                pass
+        assert len(calls) == 1
+    finally:
+        db.close()
+
+
+def test_hand_edited_state_does_not_rearm_a_sent_application(monkeypatch):
+    """Sent-ness is read from sent_at / the Gmail ids too, not only the state."""
+    calls = []
+    monkeypatch.setattr(review, "send_email", _fake_send(calls))
+
+    db = SessionLocal()
+    try:
+        company, application = _seed_company_and_application(db, contact_email="rearm@acme.example")
+        review.approve_and_send(db, application, company.contact_email)
+        application.state = ApplicationState.PENDING_APPROVAL  # as an old state override could
+        db.commit()
+
+        try:
+            review.approve_and_send(db, application, company.contact_email)
+            assert False, "expected AlreadySentError"
+        except review.AlreadySentError:
+            pass
+        assert len(calls) == 1
+    finally:
+        db.close()
+
+
+def test_failed_gmail_send_releases_the_claim(monkeypatch):
+    def failing_send(to, subject, body_text, attachment_path=None, attachment_name=None):
+        raise RuntimeError("gmail down")
+
+    monkeypatch.setattr(review, "send_email", failing_send)
+
+    db = SessionLocal()
+    try:
+        company, application = _seed_company_and_application(db, contact_email="down@acme.example")
+        try:
+            review.approve_and_send(db, application, company.contact_email)
+            assert False, "expected the Gmail error to propagate"
+        except RuntimeError:
+            pass
+        db.refresh(application)
+        assert application.state == ApplicationState.PENDING_APPROVAL
+        assert application.sent_at is None
+    finally:
+        db.close()
+
+
+def test_only_pending_applications_can_be_sent(monkeypatch):
+    calls = []
+    monkeypatch.setattr(review, "send_email", _fake_send(calls))
+
+    db = SessionLocal()
+    try:
+        company, application = _seed_company_and_application(db, contact_email="draft@acme.example")
+        application.state = ApplicationState.DRAFT
+        db.commit()
+        try:
+            review.approve_and_send(db, application, company.contact_email)
+            assert False, "expected ValueError"
+        except ValueError as exc:
+            assert "not awaiting approval" in str(exc)
+        assert calls == []
+    finally:
+        db.close()
+
+
+def test_manual_state_changes_follow_the_lifecycle(monkeypatch):
+    monkeypatch.setattr(review, "send_email", _fake_send([]))
+
+    db = SessionLocal()
+    try:
+        company, application = _seed_company_and_application(db, contact_email="states@acme.example")
+
+        # Unsent: can't be marked as sent without sending.
+        try:
+            review.set_application_state(db, application, ApplicationState.REPLIED)
+            assert False, "expected StateTransitionError"
+        except review.StateTransitionError:
+            pass
+
+        review.approve_and_send(db, application, company.contact_email)
+        review.set_application_state(db, application, ApplicationState.INTERVIEW)
+        assert application.state == ApplicationState.INTERVIEW
+
+        # Sent: never back to a sendable state.
+        for target in (ApplicationState.PENDING_APPROVAL, ApplicationState.DRAFT):
+            try:
+                review.set_application_state(db, application, target)
+                assert False, "expected StateTransitionError"
+            except review.StateTransitionError:
+                pass
+        assert application.state == ApplicationState.INTERVIEW
+    finally:
+        db.close()
+
+
+def test_attachment_goes_out_under_the_cv_display_name(monkeypatch):
+    seen = {}
+
+    def send(to, subject, body_text, attachment_path=None, attachment_name=None):
+        seen.update(path=attachment_path, name=attachment_name)
+        return {"id": "m-att", "threadId": "t-att"}
+
+    monkeypatch.setattr(review, "send_email", send)
+    db = SessionLocal()
+    try:
+        company, application = _seed_company_and_application(db, contact_email="att@acme.example")
+        review.approve_and_send(db, application, company.contact_email)
+        assert seen == {"path": "data/cv_variants/backend.pdf", "name": "Backend_CV.pdf"}
     finally:
         db.close()

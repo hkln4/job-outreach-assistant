@@ -4,7 +4,7 @@
   <div class="dash-header">
     <div>
       <h1>{{ application.company.name }}</h1>
-      <p class="muted">{{ application.target_position or t("common.untitled") }} &middot; <span class="badge badge-state">{{ application.state.value }}</span></p>
+      <p class="muted">{{ application.target_position or t("common.untitled") }} &middot; <span class="badge badge-state">{{ application.state.value | replace("_", " ") }}</span></p>
     </div>
     <div class="dash-header-actions">
       <a class="button-link secondary" href="/">{{ t("application_detail.back_to_dashboard") }}</a>
@@ -15,6 +15,13 @@
       {% endif %}
     </div>
   </div>
+
+  {% if blocked %}
+  <div class="warning">
+    <h3>{{ t("application_detail.blocked_title") }}</h3>
+    <p>{{ t("application_detail.blocked_body") }}</p>
+  </div>
+  {% endif %}
 
   {% if wait_seconds %}
   <div class="warning">
@@ -30,7 +37,7 @@
       {{ t("application_detail.contacted_before_body") }}
       <a href="/applications/{{ prior_send.id }}">{{ prior_send.target_position or t("common.untitled") }}</a>
       {% if prior_send.sent_at %}· {{ prior_send.sent_at.strftime("%Y-%m-%d") }}{% endif %}
-      · {{ prior_send.state.value }}
+      · {{ prior_send.state.value | replace("_", " ") | capitalize }}
     </p>
     {% if duplicate_blocked %}
     <form method="post" action="/applications/{{ application.id }}/approve" data-loading-text="{{ t('loading.sending') }}">
@@ -55,6 +62,17 @@
       <p class="ai-note-title">{{ t("application_detail.reasoning_title") }}</p>
       <p class="ai-note-text">{{ application.revision_history[0].reasoning }}</p>
     </div>
+  </div>
+  {% endif %}
+
+  {% if draft_warnings %}
+  <div class="warning" id="draft-checks">
+    <h3>{{ t("draft_check.title") }}</h3>
+    <ul>
+      {% for key, detail in draft_warnings %}
+      <li>{{ t(key) }}{% if detail %} <span class="muted">{{ detail }}</span>{% endif %}</li>
+      {% endfor %}
+    </ul>
   </div>
   {% endif %}
 
@@ -118,6 +136,29 @@
         <li><a href="{{ src }}" target="_blank" rel="noopener">{{ src }}</a></li>
         {% endfor %}
       </ul>
+    </details>
+    {% endif %}
+
+    {% if application.evidence %}
+    <details class="section" id="evidence" open>
+      <summary>{{ t("application_detail.evidence_title") }} ({{ application.evidence | selectattr("used") | list | length }}/{{ application.evidence | length }})</summary>
+      <p class="hint">{{ t("application_detail.evidence_hint") }}</p>
+      {% for e in application.evidence %}
+      {% set excluded = e.item_id in (application.excluded_evidence_ids or []) %}
+      <div class="evidence{{ ' evidence-unused' if not e.used }}">
+        {% if e.used %}<span class="badge badge-state">{{ t("application_detail.evidence_used") }}</span>{% endif %}
+        {% if excluded %}<span class="badge badge-soft">{{ t("application_detail.evidence_excluded") }}</span>{% endif %}
+        <strong>{{ e.source_ref }}</strong> <span class="muted">· {{ e.source_type }}</span>
+        {% if e.source_url %}<a href="{{ e.source_url }}" target="_blank" rel="noopener">↗</a>{% endif %}
+        {% if e.purpose %}<br>{{ e.purpose }}{% endif %}
+        {% if e.why %}<br><em>{{ t("application_detail.evidence_why") }} {{ e.why }}</em>{% endif %}
+        {% if application.state.value == "PENDING_APPROVAL" %}
+        <form method="post" action="/applications/{{ application.id }}/evidence/{{ e.item_id }}/toggle" class="evidence-toggle">
+          <button type="submit" class="secondary">{{ t("application_detail.evidence_include") if excluded else t("application_detail.evidence_exclude") }}</button>
+        </form>
+        {% endif %}
+      </div>
+      {% endfor %}
     </details>
     {% endif %}
 
@@ -185,8 +226,8 @@
     <summary>{{ t("application_detail.state_override_title") }}</summary>
     <form method="post" action="/applications/{{ application.id }}/state">
       <select name="state" onchange="this.form.submit()">
-        {% for s in states %}
-        <option value="{{ s.value }}" {% if application.state == s %}selected{% endif %}>{{ s.value }}</option>
+        {% for s in allowed_states %}
+        <option value="{{ s.value }}" {% if application.state == s %}selected{% endif %}>{{ s.value | replace("_", " ") | capitalize }}</option>
         {% endfor %}
       </select>
     </form>

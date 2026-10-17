@@ -14,6 +14,11 @@ logger = logging.getLogger("app.errors")
 templates = Jinja2Templates(directory="app/web/templates")
 
 
+class NotFoundError(ValueError):
+    """A page for a record that doesn't exist (deleted, mistyped id) - shown as
+    a plain 404 instead of an "unexpected error"."""
+
+
 def classify_llm_error(exc: Exception) -> str:
     """Best-effort classification shared by anthropic and google-genai errors -
     both expose `.status_code` on their API exception types."""
@@ -35,7 +40,7 @@ def register_error_handlers(app: FastAPI) -> None:
         logger.exception("Unhandled error on %s %s", request.method, request.url.path)
         lang = get_lang(request)
         t = translator(lang)
-        category = classify_llm_error(exc)
+        category = "not_found" if isinstance(exc, NotFoundError) else classify_llm_error(exc)
         return templates.TemplateResponse(
             request,
             "error.html",
@@ -45,5 +50,5 @@ def register_error_handlers(app: FastAPI) -> None:
                 "category": category,
                 "detail": str(exc),
             },
-            status_code=500,
+            status_code=404 if category == "not_found" else 500,
         )

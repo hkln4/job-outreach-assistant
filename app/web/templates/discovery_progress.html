@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}{{ t("discovery.title") }}{% endblock %}
+{% block content %}
+  {% if auto_continue %}<meta http-equiv="refresh" content="0;url={{ next_url }}">{% endif %}
+  <h1>{{ t("discovery.screening_title") }}</h1>
+  <div class="card">
+    <p>{{ done }} / {{ total }} {{ t("discovery.screening_suffix") }}</p>
+    <div class="progress-bar"><div class="progress-fill" style="width: {{ (100 * done / total) | round(1) }}%"></div></div>
+    <p class="muted">{{ current }}</p>
+    {% if error %}
+    <div class="warning"><h3>{{ t("discovery.screening_stopped") }}</h3><p>{{ error }}</p></div>
+    {% endif %}
+    <p><a class="button-link secondary" href="{{ back_url }}">{{ t("discovery.screening_stop") }}</a></p>
+  </div>
+{% endblock %}

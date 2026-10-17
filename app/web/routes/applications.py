@@ -9,15 +9,21 @@ from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
+from app.applications.draft_checks import draft_warnings
 from app.applications.drafting import regenerate_draft
 from app.applications.follow_ups import draft_follow_up, send_follow_up
 from app.applications.reply_check import auto_check_if_due, check_application_reply
 from app.applications.review import (
     SENT_STATES,
+    AlreadySentError,
     DuplicateSendError,
     SendDelayError,
+    StateTransitionError,
+    allowed_state_targets,
     approve_and_send,
     find_prior_send,
+    is_sent,
+    set_application_state,
 )
 from app.db import get_db
 from app.llm.base import LLMProvider
@@ -31,7 +37,8 @@ from app.models import (
     FollowUp,
     FollowUpState,
 )
-from app.web.deps import get_llm
+from app.web.deps import get_draft_llm
+from app.web.errors import NotFoundError
 from app.web.render import render
 
 router = APIRouter(prefix="/applications", tags=["applications"])
@@ -41,8 +48,14 @@ templates = Jinja2Templates(directory="app/web/templates")
 def _application_or_404(db: Session, application_id: int) -> Application:
     application = db.get(Application, application_id)
     if application is None:
-        raise ValueError(f"Application {application_id} not found")
+        raise NotFoundError(f"Application {application_id} not found")
     return application
+
+
+def _blocked_redirect(application_id: int) -> RedirectResponse:
+    """Back to the detail page with a notice: the action would have changed or
+    re-sent a letter that already went out."""
+    return RedirectResponse(url=f"/applications/{application_id}?blocked=1", status_code=303)
 
 
 def _resolve_recipient(db: Session, application: Application) -> str:
@@ -85,6 +98,7 @@ def application_detail(
     application_id: int,
     duplicate: int = 0,
     wait: int = 0,
+    blocked: int = 0,
     db: Session = Depends(get_db),
 ):
     application = _application_or_404(db, application_id)
@@ -109,12 +123,14 @@ def application_detail(
         "application_detail.html",
         {
             "application": application,
-            "states": list(ApplicationState),
+            "allowed_states": allowed_state_targets(application),
             "recipient": recipient,
             "cvs": db.query(CV).all(),
             "prior_send": prior_send,
             "duplicate_blocked": bool(duplicate),
             "wait_seconds": wait,
+            "blocked": bool(blocked),
+            "draft_warnings": draft_warnings(application),
             "follow_ups": follow_ups,
             "pending_follow_up": next(
                 (f for f in follow_ups if f.state == FollowUpState.PENDING_APPROVAL), None
@@ -129,6 +145,8 @@ def set_cv(application_id: int, cv_id: str = Form(""), db: Session = Depends(get
     override the AI's pick (e.g. if it named a near-duplicate CV variant) without
     going through reject-with-feedback."""
     application = _application_or_404(db, application_id)
+    if is_sent(application):  # the attachment that went out is part of the record
+        return _blocked_redirect(application_id)
     application.cv_id = int(cv_id) if cv_id else None
     db.commit()
     return RedirectResponse(url=f"/applications/{application_id}", status_code=303)
@@ -140,6 +158,9 @@ def approve(application_id: int, force: str = Form(""), db: Session = Depends(ge
     to = _resolve_recipient(db, application)
     try:
         approve_and_send(db, application, to, allow_duplicate=bool(force))
+    except AlreadySentError:
+        # A double-click, a second tab, or a stale page - never a second email.
+        return _blocked_redirect(application_id)
     except DuplicateSendError:
         # Not a crash: the detail page shows the evidence and a "send anyway" confirm.
         return RedirectResponse(url=f"/applications/{application_id}?duplicate=1", status_code=303)
@@ -170,6 +191,8 @@ def edit_application(
     things (including the target position) by hand instead of always going
     through reject-with-feedback."""
     application = _application_or_404(db, application_id)
+    if is_sent(application):  # what was sent is history, not a draft
+        return _blocked_redirect(application_id)
     application.subject = subject
     application.cover_letter_body = cover_letter_body
     application.target_position = target_position.strip()
@@ -182,18 +205,41 @@ def reject(
     application_id: int,
     feedback: str = Form(...),
     db: Session = Depends(get_db),
-    llm: LLMProvider = Depends(get_llm),
+    llm: LLMProvider = Depends(get_draft_llm),
 ):
     application = _application_or_404(db, application_id)
-    regenerate_draft(db, llm, application, feedback.strip())
+    try:
+        regenerate_draft(db, llm, application, feedback.strip())
+    except AlreadySentError:
+        return _blocked_redirect(application_id)
     return RedirectResponse(url=f"/applications/{application_id}", status_code=303)
+
+
+@router.post("/{application_id}/evidence/{item_id}/toggle")
+def toggle_evidence(application_id: int, item_id: int, db: Session = Depends(get_db)):
+    """Owner marks a retrieved profile record as "don't use in this draft" (or
+    takes that back). Applies at the next regenerate, which then picks again
+    without it."""
+    application = _application_or_404(db, application_id)
+    if is_sent(application):
+        return _blocked_redirect(application_id)
+    excluded = list(application.excluded_evidence_ids or [])
+    if item_id in excluded:
+        excluded.remove(item_id)
+    else:
+        excluded.append(item_id)
+    application.excluded_evidence_ids = excluded  # reassigned: JSON columns don't track in-place edits
+    db.commit()
+    return RedirectResponse(url=f"/applications/{application_id}#evidence", status_code=303)
 
 
 @router.post("/{application_id}/state")
 def set_state(application_id: int, state: str = Form(...), db: Session = Depends(get_db)):
     application = _application_or_404(db, application_id)
-    application.state = ApplicationState(state)
-    db.commit()
+    try:
+        set_application_state(db, application, ApplicationState(state))
+    except StateTransitionError:
+        return _blocked_redirect(application_id)
     return RedirectResponse(url=f"/applications/{application_id}", status_code=303)
 
 
@@ -234,7 +280,7 @@ def check_reply(application_id: int, db: Session = Depends(get_db)):
 
 @router.post("/{application_id}/follow-ups/draft")
 def create_follow_up(
-    application_id: int, db: Session = Depends(get_db), llm: LLMProvider = Depends(get_llm)
+    application_id: int, db: Session = Depends(get_db), llm: LLMProvider = Depends(get_draft_llm)
 ):
     application = _application_or_404(db, application_id)
     draft_follow_up(db, llm, application)

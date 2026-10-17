@@ -6,7 +6,7 @@
       <h1>{{ company.name }}</h1>
       <p class="muted">
         {% if company.website_url %}<a href="{{ company.website_url }}" target="_blank" rel="noopener">{{ company.website_url }}</a>{% endif %}
-        &middot; {{ t("company_detail.state_label") }} {{ company.state.value }}
+        &middot; {{ t("company_detail.state_label") }} {{ company.state.value | replace("_", " ") | capitalize }}
       </p>
     </div>
     <div class="dash-header-actions">
@@ -40,7 +40,7 @@
         {% if last_contacted.sent_at %}· {{ last_contacted.sent_at.strftime("%Y-%m-%d") }}
           {% if last_contacted_days is not none %}({{ last_contacted_days }} {{ t("company_detail.days_ago") }}){% endif %}
         {% endif %}
-        · {{ last_contacted.state.value }}
+        · {{ last_contacted.state.value | replace("_", " ") | capitalize }}
       </p>
     {% endif %}
     {% if applications %}
@@ -50,7 +50,7 @@
         {% for app in applications %}
         <tr>
           <td><a href="/applications/{{ app.id }}">{{ app.target_position or t("common.untitled") }}</a></td>
-          <td>{{ app.state.value }}</td>
+          <td class="cell-nowrap"><span class="badge badge-state">{{ app.state.value | replace("_", " ") }}</span></td>
           <td>{{ app.sent_at.strftime("%Y-%m-%d") if app.sent_at else "—" }}</td>
         </tr>
         {% endfor %}
@@ -60,7 +60,7 @@
       <p class="muted">{{ t("company_detail.no_applications") }}</p>
     {% endif %}
     {% if research_usable and not blocked %}
-    <details class="edit-toggle">
+    <details class="draft-toggle">
       <summary>+ {{ t("company_detail.draft_button") }}</summary>
       <form method="post" action="/companies/{{ company.id }}/draft" data-loading-text="{{ t('loading.drafting') }}">
         <p class="hint">{{ t("company_detail.draft_hint") }}</p>
@@ -148,7 +148,7 @@
         </details>
       {% endif %}
 
-      <p class="hint">{{ t("company_detail.fetched") }} {{ company.research.fetched_at }}</p>
+      <p class="hint">{{ t("company_detail.fetched") }} {{ company.research.fetched_at[:16] | replace("T", " ") }}</p>
       <details>
         <summary>{{ t("company_detail.sources_summary") }} ({{ company.research.pages | length }})</summary>
         <ul class="link-list">
@@ -222,7 +222,7 @@
         </div>
       {% endif %}
 
-      <p class="hint">{{ t("company_detail.fetched") }} {{ li.fetched_at }}
+      <p class="hint">{{ t("company_detail.fetched") }} {{ li.fetched_at[:16] | replace("T", " ") }}
         {% if li.source_url %}· <a href="{{ li.source_url }}" target="_blank" rel="noopener">{{ li.source_url }}</a>{% endif %}
       </p>
     {% elif li.error %}
@@ -341,7 +341,7 @@
           <td>{{ contact.name }}</td>
           <td>{{ contact.role }}</td>
           <td>{{ contact.email or "—" }}</td>
-          <td>{{ contact.state.value }}</td>
+          <td class="cell-nowrap">{{ contact.state.value | replace("_", " ") | capitalize }}</td>
           <td>
             {% if not contact.email %}
             <form method="post" action="/companies/{{ company.id }}/contacts/{{ contact.id }}/email" class="inline-form">

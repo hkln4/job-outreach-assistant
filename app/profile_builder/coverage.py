@@ -19,14 +19,29 @@ def record_item(
     if looks_empty or "parse_error" in extracted:
         status = ProfileItemStatus.NEEDS_REVIEW
 
-    item = ProfileItem(
-        source_type=source_type,
-        source_ref=source_ref,
-        extracted=extracted,
-        status=status,
-        source_urls=source_urls,
+    # One record per source: re-ingesting a repo/CV/page updates its record
+    # instead of adding a second one (duplicates used to fill half of a draft's
+    # evidence slots with the same repos). Older copies of the same source are
+    # folded away here too.
+    existing = (
+        db.query(ProfileItem)
+        .filter(ProfileItem.source_type == source_type, ProfileItem.source_ref == source_ref)
+        .order_by(ProfileItem.id.desc())
+        .all()
     )
-    db.add(item)
+    keep = next((e for e in existing if e.status == ProfileItemStatus.ANALYZED), None)
+    if status != ProfileItemStatus.ANALYZED and keep is not None:
+        # A failed re-run (rate limit, bad JSON) never replaces a good record.
+        item = keep
+    else:
+        item = existing[0] if existing else ProfileItem(source_type=source_type, source_ref=source_ref)
+        item.extracted = extracted
+        item.status = status
+        item.source_urls = source_urls
+        db.add(item)
+    for duplicate in existing:
+        if duplicate is not item:
+            db.delete(duplicate)
     db.commit()
     db.refresh(item)
     return item

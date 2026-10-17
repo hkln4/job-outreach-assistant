@@ -12,7 +12,7 @@
     {% if company.contact_email %}
       <span title="{{ company.contact_email }}">{{ company.contact_email }}</span>
     {% else %}
-      <span class="badge badge-hard">{{ t("common.none") }}</span>
+      <span class="badge badge-soft">{{ t("companies.no_email") }}</span>
     {% endif %}
   </td>
   <td>
@@ -22,7 +22,7 @@
     <form method="post" action="/companies/{{ company.id }}/state">
       <select name="state" onchange="this.form.submit()">
         {% for s in states %}
-          <option value="{{ s.value }}" {% if company.state == s %}selected{% endif %}>{{ s.value }}</option>
+          <option value="{{ s.value }}" {% if company.state == s %}selected{% endif %}>{{ s.value | replace("_", " ") | capitalize }}</option>
         {% endfor %}
       </select>
     </form>

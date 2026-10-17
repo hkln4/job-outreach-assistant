@@ -15,7 +15,17 @@ from app.config import get_settings
 from app.db import SessionLocal, init_db
 from app.models import CV
 from app.web.errors import register_error_handlers
-from app.web.routes import applications, company_detail, companies, cvs, dashboard, lang, preferences, profile
+from app.web.routes import (
+    applications,
+    company_detail,
+    companies,
+    cvs,
+    dashboard,
+    discovery,
+    lang,
+    preferences,
+    profile,
+)
 
 EXEMPT_PATH_PREFIXES = ("/cvs", "/static", "/set-lang", "/docs", "/openapi.json", "/redoc")
 
@@ -58,6 +68,7 @@ app.include_router(profile.router)
 app.include_router(preferences.router)
 app.include_router(companies.router)
 app.include_router(company_detail.router)
+app.include_router(discovery.router)
 app.include_router(cvs.router)
 app.include_router(applications.router)
 

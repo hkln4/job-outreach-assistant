@@ -15,7 +15,13 @@ class Settings(BaseSettings):
     gemini_api_key: str = ""
     gemini_model: str = "gemini-3.6-flash"
     anthropic_api_key: str = ""
-    anthropic_model: str = "claude-haiku-4-5"  # cheapest tier - this app's extraction/drafting tasks don't need more
+    anthropic_model: str = "claude-haiku-4-5"  # cheapest tier - reading/extraction tasks don't need more
+    # Letters a recruiter actually reads (drafts, follow-ups, escalations) get a
+    # stronger writer than the bulk reading tasks: Haiku's Turkish read stiff
+    # and it kept using phrases the prompt bans. One call per letter, so the
+    # cost difference stays small. Empty = use the provider's main model.
+    anthropic_draft_model: str = "claude-sonnet-5-5"
+    gemini_draft_model: str = ""
 
     # Storage
     database_url: str = "sqlite:///data/app.db"

@@ -8,7 +8,7 @@
     <select name="state" onchange="this.form.submit()">
       <option value="">{{ t("applications.filter.all_states") }}</option>
       {% for s in states %}
-        <option value="{{ s.value }}" {% if filter_state == s.value %}selected{% endif %}>{{ s.value }}</option>
+        <option value="{{ s.value }}" {% if filter_state == s.value %}selected{% endif %}>{{ s.value | replace("_", " ") | capitalize }}</option>
       {% endfor %}
     </select>
     <select name="company_id" onchange="this.form.submit()">
@@ -34,9 +34,9 @@
       <tr>
         <td><a href="/companies/{{ app.company.id }}">{{ app.company.name }}</a></td>
         <td><a href="/applications/{{ app.id }}">{{ app.target_position or t("common.untitled") }}</a></td>
-        <td><span class="badge badge-state">{{ app.state.value }}</span></td>
-        <td>{{ app.sent_at.strftime("%Y-%m-%d") if app.sent_at else "—" }}</td>
-        <td>{{ app.last_action_at.strftime("%Y-%m-%d") }}</td>
+        <td class="cell-nowrap"><span class="badge badge-state">{{ app.state.value | replace("_", " ") }}</span></td>
+        <td class="cell-nowrap">{{ app.sent_at.strftime("%Y-%m-%d") if app.sent_at else "—" }}</td>
+        <td class="cell-nowrap">{{ app.last_action_at.strftime("%Y-%m-%d") }}</td>
       </tr>
       {% else %}
       <tr><td colspan="5" class="muted">{{ t("applications.empty") }}</td></tr>

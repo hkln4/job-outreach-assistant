@@ -101,3 +101,33 @@ def test_ledger_summary_counts_by_source_type_and_status():
         assert summary["cv"]["needs_review"] >= 1
     finally:
         db.close()
+
+
+def test_reingesting_a_source_updates_its_record_instead_of_duplicating():
+    from app.models import ProfileItem
+
+    db = SessionLocal()
+    try:
+        ref = "owner/upsert-repo"
+        good = {"purpose": "v1", "stack": ["Python"], "role": "author", "highlights": []}
+        first = record_item(db, source_type="github_repo", source_ref=ref, extracted=good, source_urls=[])
+        # A copy left over from before re-ingestion updated in place.
+        db.add(ProfileItem(source_type="github_repo", source_ref=ref, extracted=good, status=ProfileItemStatus.ANALYZED))
+        db.commit()
+
+        newer = {**good, "purpose": "v2"}
+        second = record_item(db, source_type="github_repo", source_ref=ref, extracted=newer, source_urls=[])
+        rows = db.query(ProfileItem).filter(ProfileItem.source_ref == ref).all()
+        assert len(rows) == 1 and rows[0].id == second.id
+        assert rows[0].extracted["purpose"] == "v2"
+
+        # A failed re-run never replaces the good record.
+        failed = {"purpose": "unknown", "stack": [], "role": "unknown", "highlights": [], "parse_error": "boom"}
+        kept = record_item(db, source_type="github_repo", source_ref=ref, extracted=failed, source_urls=[])
+        assert kept.status == ProfileItemStatus.ANALYZED and kept.extracted["purpose"] == "v2"
+        assert db.query(ProfileItem).filter(ProfileItem.source_ref == ref).count() == 1
+        assert first.id  # first record existed before the fold
+    finally:
+        db.query(ProfileItem).filter(ProfileItem.source_ref == "owner/upsert-repo").delete()
+        db.commit()
+        db.close()

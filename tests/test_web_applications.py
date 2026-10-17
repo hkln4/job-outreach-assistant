@@ -135,3 +135,40 @@ def test_sent_application_does_not_ship_the_guard():
     page = client.get(f"/applications/{sent_id}").text
 
     assert "/static/draft_guard.js" not in page
+
+
+def test_sent_application_cannot_be_regenerated_edited_or_rearmed():
+    _, application_id = _seed(state=ApplicationState.AWAITING_REPLY, sent=True, name="Locked Co")
+
+    for path, data in (
+        ("reject", {"feedback": "rewrite"}),
+        ("edit", {"subject": "New", "cover_letter_body": "New body", "target_position": "X"}),
+        ("state", {"state": "PENDING_APPROVAL"}),
+        ("approve", {}),
+    ):
+        r = client.post(f"/applications/{application_id}/{path}", data=data, follow_redirects=False)
+        assert r.status_code == 303, path
+        assert r.headers["location"] == f"/applications/{application_id}?blocked=1", path
+
+    db = SessionLocal()
+    try:
+        application = db.get(Application, application_id)
+        assert application.state == ApplicationState.AWAITING_REPLY
+        assert application.subject == "Application"
+        assert application.cover_letter_body == "Dear team, ..."
+    finally:
+        db.close()
+
+
+def test_state_override_lists_only_allowed_states():
+    _, application_id = _seed(state=ApplicationState.AWAITING_REPLY, sent=True, name="Override Co")
+    page = client.get(f"/applications/{application_id}").text
+    assert 'value="INTERVIEW"' in page
+    assert 'value="PENDING_APPROVAL"' not in page
+
+    client.post(f"/applications/{application_id}/state", data={"state": "INTERVIEW"})
+    db = SessionLocal()
+    try:
+        assert db.get(Application, application_id).state == ApplicationState.INTERVIEW
+    finally:
+        db.close()

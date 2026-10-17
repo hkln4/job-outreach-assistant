@@ -55,6 +55,13 @@ class PreferenceType(str, enum.Enum):
     SOFT = "soft"
 
 
+class CandidateStatus(str, enum.Enum):
+    PENDING = "PENDING"  # imported from a directory, waiting for the owner
+    APPROVED = "APPROVED"  # owner approved - now (or already) a Company
+    REJECTED = "REJECTED"  # owner rejected - never suggested again
+    MATCHED = "MATCHED"  # turned out to be a company already in the list - hidden
+
+
 class ContactState(str, enum.Enum):
     NOT_CONTACTED = "NOT_CONTACTED"
     DRAFT = "DRAFT"
@@ -173,6 +180,11 @@ class Application(Base):
     subject: Mapped[str] = mapped_column(String, default="")
     cover_letter_body: Mapped[str] = mapped_column(Text, default="")
     sources: Mapped[list] = mapped_column(JSON, default=list)  # source URLs backing claims (Evidence Rule)
+    # Owner-side evidence: the ProfileItems retrieved for this draft, and which
+    # of them the letter drew on (app/applications/evidence.py).
+    evidence: Mapped[list] = mapped_column(JSON, default=list)
+    # [{item_id, source_type, source_ref, source_url, purpose, why, used}]
+    excluded_evidence_ids: Mapped[list] = mapped_column(JSON, default=list)  # owner: "don't use in this draft"
     state: Mapped[ApplicationState] = mapped_column(Enum(ApplicationState), default=ApplicationState.DRAFT)
     sent_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     last_action_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, onupdate=_utcnow)
@@ -223,3 +235,41 @@ class Contact(Base):
     application_id: Mapped[int | None] = mapped_column(ForeignKey("applications.id"), nullable=True)
 
     company: Mapped["Company"] = relationship(back_populates="contacts")
+
+
+class DiscoverySource(Base):
+    """A technopark company directory the owner imports candidates from."""
+
+    __tablename__ = "discovery_sources"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String)  # the technopark, e.g. "ODTÜ Teknokent"
+    city: Mapped[str] = mapped_column(String, default="")
+    url: Mapped[str] = mapped_column(String)
+    kind: Mapped[str] = mapped_column(String, default="html")  # "odtu_json" | "html"
+    last_imported_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_error: Mapped[str] = mapped_column(Text, default="")
+
+
+class CompanyCandidate(Base):
+    """A company found in a directory. Becomes a Company only on owner approval."""
+
+    __tablename__ = "company_candidates"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    source_id: Mapped[int] = mapped_column(ForeignKey("discovery_sources.id"))
+    name: Mapped[str] = mapped_column(String)  # as listed - often the legal name
+    website_url: Mapped[str | None] = mapped_column(String, nullable=True)  # only if the directory lists one
+    sector: Mapped[str] = mapped_column(String, default="")  # the directory's own category, if it has one
+    contact_email: Mapped[str | None] = mapped_column(String, nullable=True)  # as listed in the directory
+    city: Mapped[str] = mapped_column(String, default="")
+    technopark: Mapped[str] = mapped_column(String, default="")
+    status: Mapped[CandidateStatus] = mapped_column(Enum(CandidateStatus), default=CandidateStatus.PENDING)
+    # Homepage screening: {brand_name, summary, sector, fit, fit_reason,
+    # careers_page, flags[{preference_id, type, description, evidence_snippet}], error}
+    triage: Mapped[dict] = mapped_column(JSON, default=dict)
+    triaged_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    company_id: Mapped[int | None] = mapped_column(ForeignKey("companies.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
+
+    source: Mapped["DiscoverySource"] = relationship()

@@ -2,98 +2,174 @@
 company-specific claim in the draft must be backed by a source URL from the
 company's cached research."""
 import json
+from urllib.parse import urldefrag
 
+from pydantic import BaseModel, Field, ValidationError, field_validator
 from sqlalchemy.orm import Session
 
+from app.applications.evidence import (
+    EvidenceSelection,
+    evidence_prompt_section,
+    evidence_records,
+    items_by_ids,
+    select_evidence,
+)
+from app.applications.review import ensure_not_sent
 from app.companies.workflow import has_usable_research
 from app.llm.base import LLMProvider
 from app.llm.json_utils import parse_json_object
-from app.models import CV, Application, ApplicationState, Company, Profile
+from app.llm.untrusted import UNTRUSTED_RULE, wrap_untrusted
+from app.models import CV, Application, ApplicationState, Company, Profile, ProfileItem
 
-DRAFT_SYSTEM_PROMPT = """You are drafting a job application email for the owner, using \
-their profile and researched company text.
+DRAFT_SYSTEM_PROMPT = """You are writing a job application email on behalf of the owner
+(a new graduate), using their profile, the most relevant background records, and the
+company's own website text.
 
-Rules:
-- Recommend ONE target position and give explicit written reasoning for the choice, \
-grounded in the company text and the owner's target_roles/skills.
-- If an OWNER'S CHOSEN POSITION is given below, use exactly that as target_position - \
-don't substitute your own pick; your reasoning then explains the fit, not the choice.
-- If an OWNER'S REASON FOR APPLYING is given, this is an open/speculative application: \
-there may be no matching job posting at all. Never pretend one exists - write the email \
-as a direct introduction ("I'm reaching out because..."), grounded in that reason, and \
-set target_position to the owner's chosen position or a general role family (e.g. \
-"Backend Engineer - open application").
-- If OWNER'S NOTES ON WHY THIS COMPANY is given, weave that motivation into the "why \
-this company" part - it reflects what actually drew the owner here. Company facts still \
-need source URLs; the owner's own motivation does not.
-- Recommend which CV variant fits best (choose from the given list by exact name) with \
-reasoning.
-- Write "reasoning" as a short note to the owner (not part of the email itself), in three \
-short parts, in this order:
-  1. One or two sentences on what the company actually does, grounded only in the given \
-company text.
-  2. Which of the owner's specific skills, projects, or experience (name them - don't just \
-say "your background fits") make this a good match for this role, grounded only in the \
-given profile summary/skills.
-  3. The explicit recommendation: this position, with this CV, because <short reason>.
-  Keep it compact - a few sentences per part, not an essay. Write it in the same language \
-you write the email in.
-- Write a company-specific cover-letter email. If the owner provided an OWNER'S COVER \
-LETTER TEMPLATE below, closely follow ITS structure, section order, tone, length, and \
-phrasing style - treat it as the owner's preferred voice, not just an example to glance at. \
-Swap in this company's specific details (and the profile's) where the template has \
-company/owner-specific content. If no template was provided, cover these points - but as a \
-natural email, NOT as the same rigid paragraph skeleton every time:
-  1. Greeting addressed to the company (or hiring team, if no contact name is known).
-  2. Why this position/company - grounded in a specific, sourced fact actually relevant \
-to the position (not generic flattery).
-  3. Why the owner - connecting the owner's most relevant experience to the position, \
-grounded in the profile.
-  4. A closing line mentioning the attached CV and inviting next steps.
-  5. Sign-off.
-- EVERY company-specific claim (something you say about the company) must be backed by \
-one of the given source URLs - do not state anything about the company that isn't in the \
-given text.
-- Ground personal/background claims only in the given profile summary/skills - never invent.
-- Decide the email's language yourself: look at the language the company's researched text \
-(website/job postings) is written in and write the subject and cover letter in that same \
-language. If the company text is ambiguous or mixed, default to Turkish, since most of the \
-companies the owner applies to are Turkish. Do not mix languages within the email.
-- Subject format: "Junior <position> Başvurusu" for Turkish emails, "Junior <position> \
-Application" for English ones - e.g. "Junior ML/AI Engineer Başvurusu". Keep the position \
-name as it's commonly written (job titles usually stay in English even in Turkish subjects).
+Work in this order:
 
-STYLE RULES (these override any habit of "classic cover letter" writing):
-- The email must never read as if filled in from a cover-letter template. Do not reuse the \
-same paragraph structure or the same sentence patterns across applications.
-- Do not praise the company needlessly. Mention the company only through points that are \
-genuinely relevant to the position and verifiable in the given text. Never compliment its \
-"vision", "mission", "innovative approach", "strong team" or similar generalities.
-- Avoid stock cover-letter phrases in ANY language. Banned examples (Turkish): "özellikle \
-ilgiyle takip ediyorum", "katkı sağlayabileceğime inanıyorum", "kendimi geliştirebileceğim \
-bir ekipte çalışmayı çok isterim", "bilgi ve deneyimlerimle örtüştüğünü düşünüyorum" - and \
-their English equivalents ("I believe I can contribute", "I have been following with great \
-interest", ...).
-- Mention a technology from the posting only if the owner's profile actually shows real \
-experience with it. Never exaggerate or invent experience to fit the posting.
-- Focus on the 1-2 most relevant experiences/projects. Do not cram the whole CV into the \
-email. Instead of listing technologies, say what the owner actually DID with them.
-- There is no obligation to say "I could bring X to you" - if a natural link exists between \
-the owner's experience and the position, just show it directly.
-- Use a learning-motivation paragraph (the "Aynı zamanda..." kind) only when it is \
-genuinely meaningful for that company - not in every email.
-- Keep the email around 250-350 words.
-- Professional but natural language - the way a student/new grad would actually write to a \
-recruiter. No marketing speak, no stiff corporate tone, no artificial confidence.
-- Do not repeat the same word or the same sentence structure back to back.
-- If the owner gave no real reason for wanting this company, use a neutral statement \
-instead of inventing praise.
-- The email's goal is not to impress with big claims; it is to explain briefly and \
-naturally why the owner is applying to this position and why they are relevant to it.
-- Output ONLY valid JSON, this exact shape:
-{"target_position": string, "cv_choice_name": string, "reasoning": string, \
-"subject": string, "cover_letter_body": string, "sources": [string]}
-"""
+1. Position
+If OWNER'S CHOSEN POSITION is given, use it exactly as target_position. Otherwise,
+choose the role that best fits the company's open positions and the owner's target roles.
+If OWNER'S REASON FOR APPLYING is given, treat this as an open application: do not imply
+there is an open posting unless the company text explicitly says so.
+
+2. The company
+Identify what the company actually builds, for whom, and the concrete problem it solves.
+Only use facts stated in the company text. Do not infer responsibilities for the role unless
+they are explicitly described in a job posting.
+
+3. The owner's relevant matches
+Review RETRIEVED PROFILE EVIDENCE and keep only experience that is genuinely relevant:
+the same problem, domain, or technology used for the same purpose. Sharing a language,
+framework, or generic AI interest alone is not enough.
+
+a. Lead project
+Choose ONE experience or project that best fits the position. A GitHub project can be
+selected over CV experience if it is more relevant.
+
+Describe it in at most two short sentences:
+- what problem the owner worked on;
+- what they built;
+- optionally, one concrete result or metric only if it strongly supports relevance.
+
+Do not list datasets, model variants, libraries, infrastructure, or several metrics unless
+they are essential to understanding the project's relevance.
+
+b. Supporting sentence
+Add at most one short sentence about another relevant project, skill, or technology.
+Omit this sentence entirely when it does not make the application more relevant.
+Never mention unrelated projects just to show breadth.
+
+4. Write the email
+
+If OWNER'S COVER LETTER TEMPLATE is given, follow its overall tone, greeting, and closing,
+but replace company- and project-specific content with the relevant information above.
+
+Without a template, write four short paragraphs:
+1. Who the owner is and which position they seek.
+2. One factual, concrete reason for contacting this company.
+3. The lead project in one or two sentences, followed by an optional supporting sentence.
+4. A short closing that mentions the attached CV and asks for an opportunity to talk.
+
+Email requirements:
+- Aim for 130–180 words in Turkish or 100–150 words in English.
+- This is an introductory email, not a CV summary or technical project report.
+- Prefer relevance and clarity over completeness.
+- Use short, direct, natural sentences.
+- If OWNER'S NOTES ON WHY THIS COMPANY is given, use it for the motivation paragraph.
+- Language: use OWNER'S PREFERRED EMAIL LANGUAGE when provided. Otherwise use the
+  language of OWNER'S COVER LETTER TEMPLATE; if neither is available, use Turkish.
+- Never mix languages within the email.
+- Subject: "Junior <target_position> Başvurusu" in Turkish or "Junior <target_position> Application"
+  in English. Do not add "Junior" if target_position already includes it.
+
+Tone:
+- Write like a new graduate writing to a person, not a generic cover-letter template.
+- Explain the company plainly; do not repeat product names, acronyms, or jargon unless
+  necessary and briefly explained.
+- Do not praise the company or claim interest that is not supported by the owner's notes.
+- Never use stock phrases such as:
+  "katkı sağlayabileceğime inanıyorum",
+  "ilgiyle takip ediyorum",
+  "bilgi ve deneyimlerimle örtüşüyor",
+  "sağlam bir temel oluşturuyor",
+  "I believe I can contribute",
+  "I have been following with great interest".
+- Show evidence instead of making broad claims. Do not say the owner has "strong"
+  experience; say what they built when it is relevant.
+- Do not invent confidence, experience, motivation, or qualifications.
+
+Evidence rules:
+- Every company statement must come from the company text.
+- "sources" must contain only URLs copied exactly from [url] headers in the company text.
+- Personal claims must come only from the profile summary, skills, and evidence records.
+- Mention a technology only when evidence shows the owner used it.
+- Include the number of every evidence record used in "evidence_item_ids".
+- Put any personal claim not supported by evidence in "unsupported_claims"
+  (normally this must be empty).
+
+Also return:
+- "cv_choice_name": the CV variant, using its exact name from the provided list, that best
+  fits this position.
+- "reasoning": a short note to the owner in the email's language:
+  (1) what the company does;
+  (2) which project was selected and why it is relevant;
+  (3) why this position and CV were chosen.
+
+Output ONLY valid JSON in this exact shape:
+{"target_position": string, "cv_choice_name": string, "reasoning": string,
+"subject": string, "cover_letter_body": string, "sources": [string],
+"evidence_item_ids": [int], "unsupported_claims": [string]}
+""" + UNTRUSTED_RULE
+
+class DraftResult(BaseModel):
+    """Shape check on the model's answer - a missing letter or a wrong-typed
+    field becomes a readable error instead of a half-empty draft."""
+
+    target_position: str = ""
+    cv_choice_name: str = ""
+    reasoning: str = ""
+    subject: str
+    cover_letter_body: str
+    sources: list[str] = []
+    evidence_item_ids: list[int] = Field(default_factory=list)
+    unsupported_claims: list[str] = Field(default_factory=list)
+
+    @field_validator("evidence_item_ids", mode="before")
+    @classmethod
+    def _ids_from_labels(cls, value: object) -> object:
+        # The prompt labels records "[E12]"; models sometimes echo the label.
+        if isinstance(value, list):
+            return [str(v).strip().lstrip("Ee") if isinstance(v, str) else v for v in value]
+        return value
+
+    @field_validator("subject", "cover_letter_body")
+    @classmethod
+    def _not_blank(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("must not be empty")
+        return value
+
+
+def _normalize_url(url: str) -> str:
+    return urldefrag(url.strip())[0].rstrip("/").lower()
+
+
+def validate_sources(sources: list[str], pages: list[dict]) -> tuple[list[str], list[str]]:
+    """Evidence Rule, enforced by the app: a source only counts if it is one of
+    the pages research actually fetched. Returns (kept, dropped); kept URLs are
+    the fetched page's own spelling, deduped."""
+    fetched = {_normalize_url(p["url"]): p["url"] for p in pages if p.get("url")}
+    kept: list[str] = []
+    dropped: list[str] = []
+    for source in sources:
+        page_url = fetched.get(_normalize_url(source))
+        if page_url is None:
+            dropped.append(source)
+        elif page_url not in kept:
+            kept.append(page_url)
+    return kept, dropped
+
 
 DRAFT_FALLBACK = {
     "target_position": "unknown",
@@ -126,14 +202,7 @@ def _resolve_cv(db: Session, cv_choice_name: str) -> CV | None:
     return None
 
 
-def draft_application(
-    db: Session,
-    llm: LLMProvider,
-    company: Company,
-    feedback: str | None = None,
-    target_position: str = "",
-    application_reason: str = "",
-) -> dict:
+def _require_draft_inputs(db: Session, company: Company) -> tuple[Profile, list[CV]]:
     profile = db.query(Profile).first()
     if profile is None:
         raise ValueError("No Profile yet - run the Profile Builder and synthesize first.")
@@ -151,10 +220,22 @@ def draft_application(
             f"Research for {company.name} came back empty - there is no site text to write from. "
             "Re-run research, or fix the website URL (some sites only render in a browser)."
         )
+    return profile, cvs
 
-    company_text = "\n\n---\n\n".join(
-        f"[{p['url']}]\n{p['text']}" for p in company.research.get("pages", [])
-    )
+
+def draft_application(
+    db: Session,
+    llm: LLMProvider,
+    company: Company,
+    feedback: str | None = None,
+    target_position: str = "",
+    application_reason: str = "",
+    evidence_items: list[ProfileItem] | None = None,
+) -> dict:
+    profile, cvs = _require_draft_inputs(db, company)
+
+    pages = company.research.get("pages", [])
+    company_text = "\n\n---\n\n".join(f"[{p['url']}]\n{p['text']}" for p in pages)
 
     cv_list = "\n".join(f"- {cv.name} (target_role: {cv.target_role or 'unknown'})" for cv in cvs)
 
@@ -163,7 +244,9 @@ def draft_application(
         f"OWNER SKILLS:\n{json.dumps(profile.skills)}\n\n"
         f"OWNER TARGET ROLES:\n{', '.join(profile.target_roles)}\n\n"
         f"AVAILABLE CV VARIANTS:\n{cv_list}\n\n"
-        f"COMPANY: {company.name}\n\nCOMPANY RESEARCH TEXT:\n{company_text[:24000]}"
+        f"RETRIEVED PROFILE EVIDENCE (the owner's most relevant background records):\n"
+        f"{evidence_prompt_section(evidence_items or []) or 'none'}\n\n"
+        f"COMPANY: {company.name}\n\nCOMPANY RESEARCH TEXT:\n{wrap_untrusted(company_text[:24000])}"
     )
     if target_position.strip():
         prompt += f"\n\nOWNER'S CHOSEN POSITION (use exactly this):\n{target_position.strip()}"
@@ -183,7 +266,28 @@ def draft_application(
             "Drafting produced invalid JSON (likely truncated - try again). "
             f"Raw response start:\n{data['parse_error']}"
         )
-    return data
+    try:
+        result = DraftResult.model_validate(data).model_dump()
+    except ValidationError as exc:
+        fields = ", ".join(".".join(str(part) for part in err["loc"]) for err in exc.errors())
+        raise ValueError(f"Drafting returned an incomplete draft (bad fields: {fields}) - try again.") from exc
+
+    result["sources"], result["dropped_sources"] = validate_sources(result["sources"], pages)
+    given_ids = {item.id for item in evidence_items or []}
+    result["evidence_item_ids"] = [i for i in dict.fromkeys(result["evidence_item_ids"]) if i in given_ids]
+    return result
+
+
+def _draft_notes(result: dict, selection: EvidenceSelection) -> dict:
+    """Index 0 of revision_history: notes about the CURRENT draft, read by the
+    review page (AI reasoning + what the app had to correct or fall back on)."""
+    return {
+        "reasoning": result.get("reasoning", ""),
+        "dropped_sources": result["dropped_sources"],
+        "unsupported_claims": result["unsupported_claims"],
+        "evidence_fallback": selection.fallback,
+        "evidence_error": selection.error,
+    }
 
 
 def create_draft_application(
@@ -193,8 +297,15 @@ def create_draft_application(
     target_position: str = "",
     application_reason: str = "",
 ) -> Application:
+    _require_draft_inputs(db, company)  # fail before spending a call on evidence selection
+    selection = select_evidence(db, llm, company, target_position, application_reason)
     result = draft_application(
-        db, llm, company, target_position=target_position, application_reason=application_reason
+        db,
+        llm,
+        company,
+        target_position=target_position,
+        application_reason=application_reason,
+        evidence_items=selection.items,
     )
     cv = _resolve_cv(db, result.get("cv_choice_name", ""))
 
@@ -205,8 +316,9 @@ def create_draft_application(
         application_reason=application_reason.strip(),
         subject=result.get("subject", ""),
         cover_letter_body=result.get("cover_letter_body", ""),
-        sources=result.get("sources", []),
-        revision_history=[{"reasoning": result.get("reasoning", "")}],
+        sources=result["sources"],
+        evidence=evidence_records(selection.items, selection.why, result["evidence_item_ids"]),
+        revision_history=[_draft_notes(result, selection)],
         state=ApplicationState.PENDING_APPROVAL,
     )
     db.add(application)
@@ -215,15 +327,47 @@ def create_draft_application(
     return application
 
 
+def _evidence_for_regeneration(db: Session, llm: LLMProvider, application: Application) -> EvidenceSelection:
+    """Reuse the saved selection (no extra LLM call per regenerate, section 8)
+    unless the owner excluded one of its records - then pick again without it."""
+    excluded = application.excluded_evidence_ids or []
+    saved = application.evidence or []
+    saved_ids = [entry["item_id"] for entry in saved]
+    if saved_ids and not set(saved_ids) & set(excluded):
+        items = items_by_ids(db, saved_ids)
+        if items:
+            notes = (application.revision_history or [{}])[0]
+            return EvidenceSelection(
+                items=items,
+                why={entry["item_id"]: entry.get("why", "") for entry in saved},
+                fallback=bool(notes.get("evidence_fallback")),
+                error=notes.get("evidence_error", ""),
+            )
+    return select_evidence(
+        db,
+        llm,
+        application.company,
+        application.target_position,
+        application.application_reason,
+        exclude_ids=excluded,
+    )
+
+
 def regenerate_draft(db: Session, llm: LLMProvider, application: Application, feedback: str) -> Application:
-    # Carry the owner's original intent (reason / open-application mode) into
-    # every regeneration - feedback refines the email, not the reason for it.
+    ensure_not_sent(application)
+    _require_draft_inputs(db, application.company)
+    selection = _evidence_for_regeneration(db, llm, application)
+    # Carry the owner's original intent (position, reason / open-application
+    # mode) into every regeneration - feedback refines the email, not what it
+    # applies for. A different position is set through the edit form.
     result = draft_application(
         db,
         llm,
         application.company,
         feedback=feedback,
+        target_position=application.target_position,
         application_reason=application.application_reason,
+        evidence_items=selection.items,
     )
     cv = _resolve_cv(db, result.get("cv_choice_name", ""))
 
@@ -232,16 +376,18 @@ def regenerate_draft(db: Session, llm: LLMProvider, application: Application, fe
     # index 0 in place instead of just appending, or the AI notes would keep
     # showing the reasoning for a draft that's no longer the one on screen.
     history = list(application.revision_history) or [{"reasoning": ""}]
-    history[0] = {**history[0], "reasoning": result.get("reasoning", "")}
+    history[0] = {**history[0], **_draft_notes(result, selection)}
     history.append({"feedback": feedback, "previous_body": application.cover_letter_body})
     application.revision_history = history
 
-    application.target_position = result.get("target_position", application.target_position)
+    if not application.target_position.strip():
+        application.target_position = result.get("target_position", "")
     if cv:
         application.cv_id = cv.id
     application.subject = result.get("subject", application.subject)
     application.cover_letter_body = result.get("cover_letter_body", application.cover_letter_body)
-    application.sources = result.get("sources", application.sources)
+    application.sources = result["sources"]
+    application.evidence = evidence_records(selection.items, selection.why, result["evidence_item_ids"])
     application.state = ApplicationState.PENDING_APPROVAL
     db.commit()
     db.refresh(application)

@@ -28,7 +28,8 @@ from app.db import get_db
 from app.email_send.gmail_client import validate_email
 from app.llm.base import LLMProvider
 from app.models import Application, Company, Contact
-from app.web.deps import get_llm
+from app.web.deps import get_draft_llm, get_llm
+from app.web.errors import NotFoundError
 from app.web.render import render
 
 router = APIRouter(prefix="/companies/{company_id}", tags=["company-detail"])
@@ -38,7 +39,7 @@ templates = Jinja2Templates(directory="app/web/templates")
 def _company_or_404(db: Session, company_id: int) -> Company:
     company = db.get(Company, company_id)
     if company is None:
-        raise ValueError(f"Company {company_id} not found")
+        raise NotFoundError(f"Company {company_id} not found")
     return company
 
 
@@ -238,7 +239,7 @@ def draft(
     target_position: str = Form(""),
     application_reason: str = Form(""),
     db: Session = Depends(get_db),
-    llm: LLMProvider = Depends(get_llm),
+    llm: LLMProvider = Depends(get_draft_llm),
 ):
     """Both fields optional: the dashboard's one-click draft posts neither; the
     company page's form lets the owner fix the position and/or write the reason
@@ -322,7 +323,7 @@ def escalate_contact(
     company_id: int,
     contact_id: int,
     db: Session = Depends(get_db),
-    llm: LLMProvider = Depends(get_llm),
+    llm: LLMProvider = Depends(get_draft_llm),
 ):
     contact = db.get(Contact, contact_id)
     if contact is None or contact.company_id != company_id or not contact.email.strip():

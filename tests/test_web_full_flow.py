@@ -5,7 +5,7 @@ import app.companies.workflow as workflow
 from app.db import SessionLocal, init_db
 from app.main import app
 from app.models import CV, Application, Company, Preference
-from app.web.deps import get_llm
+from app.web.deps import get_draft_llm, get_llm
 from tests.fakes import SequencedLLMProvider
 
 from fastapi.testclient import TestClient
@@ -22,6 +22,7 @@ def setup_module():
 
 def teardown_module():
     app.dependency_overrides.pop(get_llm, None)
+    app.dependency_overrides.pop(get_draft_llm, None)
 
 
 def test_full_workflow_add_preference_company_research_draft_approve(monkeypatch):
@@ -101,6 +102,7 @@ def test_full_workflow_add_preference_company_research_draft_approve(monkeypatch
         ]
     )
     app.dependency_overrides[get_llm] = lambda: fake_llm
+    app.dependency_overrides[get_draft_llm] = lambda: fake_llm
 
     r = client.post(f"/companies/{company_id}/research", follow_redirects=True)
     assert r.status_code == 200
@@ -115,7 +117,7 @@ def test_full_workflow_add_preference_company_research_draft_approve(monkeypatch
     r = client.get(application_location)
     assert r.status_code == 200
     assert "Dear Widgets Inc" in r.text
-    assert "PENDING_APPROVAL" in r.text
+    assert "PENDING APPROVAL" in r.text
 
     db = SessionLocal()
     application = db.query(Application).filter(Application.company_id == company_id).first()
@@ -124,8 +126,8 @@ def test_full_workflow_add_preference_company_research_draft_approve(monkeypatch
 
     # 7. Approve & send - mock the actual Gmail send
     monkeypatch.setattr(
-        review, "send_email", lambda to, subject, body_text, attachment_path=None: {"id": "m1", "threadId": "t1"}
+        review, "send_email", lambda to, subject, body_text, attachment_path=None, attachment_name=None: {"id": "m1", "threadId": "t1"}
     )
     r = client.post(f"/applications/{application_id}/approve", follow_redirects=True)
     assert r.status_code == 200
-    assert "AWAITING_REPLY" in r.text
+    assert "AWAITING REPLY" in r.text

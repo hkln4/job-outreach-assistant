@@ -17,7 +17,8 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
 from app.applications.review import SENT_STATES
-from app.companies.bulk_parse import domain_of, parse_bulk_text
+from app.companies.bulk_parse import parse_bulk_text
+from app.companies.dedup import find_existing_company
 from app.companies.workflow import research_company_safe
 from app.db import get_db
 from app.llm.base import LLMProvider
@@ -32,18 +33,6 @@ templates = Jinja2Templates(directory="app/web/templates")
 
 def _wants_json(request: Request) -> bool:
     return "application/json" in request.headers.get("accept", "")
-
-
-def _find_existing(db: Session, name: str, website_url: str | None) -> Company | None:
-    """Dedup guard (CLAUDE.md section 9): same name (case-insensitive) or same
-    site domain means the company is already tracked."""
-    domain = domain_of(website_url) if website_url else ""
-    for company in db.query(Company).all():
-        if company.name.casefold() == name.casefold():
-            return company
-        if domain and company.website_url and domain_of(company.website_url) == domain:
-            return company
-    return None
 
 
 def _render_company_row(request: Request, company: Company) -> str:
@@ -107,7 +96,7 @@ def create_company(
     name = name.strip()
     website_url = website_url.strip() or None
 
-    existing = _find_existing(db, name, website_url)
+    existing = find_existing_company(db, name, website_url)
     if existing is not None:
         if _wants_json(request):
             return JSONResponse(
@@ -151,7 +140,7 @@ def bulk_parse(text: str = Form(""), db: Session = Depends(get_db)):
     duplicate/unusable) before any research call is spent."""
     rows = parse_bulk_text(text)
     for row in rows:
-        if not row["error"] and _find_existing(db, row["name"], row["website_url"]) is not None:
+        if not row["error"] and find_existing_company(db, row["name"], row["website_url"]) is not None:
             row["error"] = "already_exists"
     return JSONResponse({"rows": rows})
 

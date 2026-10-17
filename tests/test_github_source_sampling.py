@@ -58,3 +58,43 @@ def test_repo_with_no_readme_falls_back_to_sampled_source_files():
     assert "def run():" in context
     assert "src/main.py" in context
     assert "notes.txt" not in context  # non-code file must not be sampled
+
+
+class _RepoWithReadme(_BareRepoNoReadme):
+    def __init__(self, readme: str):
+        self._readme = readme
+
+    def get_readme(self):
+        return SimpleNamespace(decoded_content=self._readme.encode())
+
+
+class _ClientFor:
+    def __init__(self, repo):
+        self._repo = repo
+
+    def get_repo(self, full_name):
+        return self._repo
+
+
+def test_brief_readme_is_topped_up_with_source_files():
+    readme = "# bare-repo\n![badge](https://img.shields.io/x)\nA small tool.\n```bash\npip install -r requirements.txt\n```"
+    context = _repo_deep_context(_ClientFor(_RepoWithReadme(readme)), "someone/bare-repo")
+    assert "A small tool." in context
+    assert "README is brief - sampled source files to fill in" in context
+    assert "def run():" in context
+
+
+def test_detailed_readme_is_read_on_its_own():
+    readme = "# Project\n" + " ".join(["This service parses invoices and stores them."] * 30)
+    context = _repo_deep_context(_ClientFor(_RepoWithReadme(readme)), "someone/bare-repo")
+    assert "parses invoices" in context
+    assert "sampled source files" not in context
+    assert "def run():" not in context
+
+
+def test_code_blocks_and_badges_do_not_make_a_readme_detailed():
+    from app.profile_builder.github_ingest import DETAILED_README_MIN_WORDS, readme_prose_words
+
+    padding = "```python\n" + "x = compute_value(alpha, beta)\n" * 200 + "```\n"
+    badges = "![build](https://img.shields.io/badge/build-passing-green) " * 50
+    assert readme_prose_words("# Title\nShort intro.\n" + padding + badges) < DETAILED_README_MIN_WORDS

@@ -48,7 +48,7 @@
         <tr>
           <td><a href="/applications/{{ row.application.id }}">{{ row.application.company.name }}</a></td>
           <td class="muted">{{ row.application.target_position or t("common.untitled") }}</td>
-          <td class="muted">{% if row.days_waiting is not none %}{{ row.days_waiting }} {{ t("dashboard.days_no_reply") }}{% endif %}</td>
+          <td class="muted cell-nowrap">{% if row.days_waiting is not none %}{{ row.days_waiting }} {{ t("dashboard.days_no_reply") }}{% endif %}</td>
           <td class="row-action">
             <form method="post" action="/applications/{{ row.application.id }}/follow-ups/draft" data-loading-text="{{ t('loading.drafting') }}">
               <button type="submit">{{ t("dashboard.button.draft_follow_up") }}</button>

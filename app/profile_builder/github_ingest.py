@@ -3,6 +3,8 @@ official API, pre-filter forks/empty repos as a suggestion only, the owner confi
 include/exclude, then one deep pass per included repo (README, topics, languages,
 stars, recent commits). Per the section-3 depth caveat, a repo with no README
 falls back to sampling actual source files instead of yielding a thin record."""
+import re
+
 from github import Github
 from sqlalchemy.orm import Session
 
@@ -20,6 +22,24 @@ _ENTRY_POINT_NAMES = {"main.py", "app.py", "index.js", "index.ts", "server.py", 
 _MAX_SAMPLED_FILES = 4
 _MAX_CHARS_PER_FILE = 2000
 _MAX_DIRS_EXPLORED = 5
+# A README with at least this many words of actual prose is enough on its own;
+# below it (a title and a one-liner, a template stub) the code is read as well.
+DETAILED_README_MIN_WORDS = 150
+
+_FENCED_CODE_RE = re.compile(r"```.*?```", re.DOTALL)
+_IMAGE_RE = re.compile(r"!\[[^\]]*\]\([^)]*\)")
+_LINK_RE = re.compile(r"\[([^\]]*)\]\([^)]*\)")
+_HTML_TAG_RE = re.compile(r"<[^>]+>")
+
+
+def readme_prose_words(readme_text: str) -> int:
+    """Words a reader would actually learn from: code blocks (install
+    commands), badges/images, link targets and HTML are not counted."""
+    text = _FENCED_CODE_RE.sub(" ", readme_text)
+    text = _IMAGE_RE.sub(" ", text)
+    text = _LINK_RE.sub(r"\1", text)
+    text = _HTML_TAG_RE.sub(" ", text)
+    return len(re.findall(r"[^\W_]{2,}", text))
 
 
 def _sample_source_files(repo) -> str:
@@ -118,8 +138,14 @@ def _repo_deep_context(gh: Github, full_name: str) -> str:
     except Exception:
         pass
 
+    # A detailed README is the best summary of a project - read the code only
+    # when the README can't carry the record on its own.
     if readme_text.strip():
         parts.append("README:\n" + readme_text[:8000])
+        if readme_prose_words(readme_text) < DETAILED_README_MIN_WORDS:
+            sampled = _sample_source_files(repo)
+            if sampled:
+                parts.append("README is brief - sampled source files to fill in:\n" + sampled)
     else:
         parts.append("README: unknown (none found)")
         sampled = _sample_source_files(repo)

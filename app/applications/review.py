@@ -1,12 +1,14 @@
 """Approve -> send (CLAUDE.md section 5 step 5, section 9 deliverability rules).
 No auto-send - only ever called after explicit UI approval."""
 from datetime import datetime, timezone
+from pathlib import Path
 
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.email_send.gmail_client import send_email, validate_email
 from app.models import Application, ApplicationState, Contact, ContactState, FollowUp, FollowUpState
+from app.web.files import safe_component
 
 # Application states that mean "an email actually went out for this".
 SENT_STATES = [
@@ -16,6 +18,20 @@ SENT_STATES = [
     ApplicationState.NO_RESPONSE,
     ApplicationState.REJECTED,
 ]
+
+
+class AlreadySentError(ValueError):
+    """This application already went out. Sending it again would email the same
+    company the same letter twice - never allowed, not even with the duplicate
+    override (that one is about a *different* application to the same place)."""
+
+    def __init__(self, application: Application):
+        self.application = application
+        super().__init__(f"Application {application.id} was already sent - it is never sent twice.")
+
+
+class StateTransitionError(ValueError):
+    """A manual state change the lifecycle doesn't allow (section 7)."""
 
 
 class DuplicateSendError(ValueError):
@@ -36,6 +52,43 @@ class SendDelayError(ValueError):
     def __init__(self, wait_seconds: int):
         self.wait_seconds = wait_seconds
         super().__init__(f"Last send was too recent - wait {wait_seconds}s before sending again.")
+
+
+def is_sent(application: Application) -> bool:
+    """Any trace of a real send counts - the state alone can be edited by hand,
+    the Gmail ids and sent_at can't."""
+    return (
+        application.sent_at is not None
+        or bool(application.gmail_message_id)
+        or application.state in SENT_STATES
+    )
+
+
+def ensure_not_sent(application: Application) -> None:
+    """Guard for anything that would change or re-send the letter itself
+    (approve, edit, regenerate, CV swap): once sent, the record is history."""
+    if is_sent(application):
+        raise AlreadySentError(application)
+
+
+def allowed_state_targets(application: Application) -> list[ApplicationState]:
+    """States the owner may set by hand. A sent application stays inside the
+    post-send lifecycle (replies that arrived outside Gmail, an interview, ...);
+    moving it back to PENDING_APPROVAL would re-arm Approve and send the same
+    email twice. An unsent one can't be marked as sent without actually sending."""
+    if is_sent(application):
+        return list(SENT_STATES)
+    return [ApplicationState.DRAFT, ApplicationState.PENDING_APPROVAL]
+
+
+def set_application_state(db: Session, application: Application, new_state: ApplicationState) -> Application:
+    if new_state not in allowed_state_targets(application):
+        raise StateTransitionError(
+            f"Application {application.id} can't move from {application.state.value} to {new_state.value}."
+        )
+    application.state = new_state
+    db.commit()
+    return application
 
 
 def find_prior_send(
@@ -93,6 +146,9 @@ def seconds_until_send_allowed(db: Session, now: datetime | None = None) -> int:
 
 
 def approve_and_send(db: Session, application: Application, to: str, allow_duplicate: bool = False) -> Application:
+    ensure_not_sent(application)
+    if application.state != ApplicationState.PENDING_APPROVAL:
+        raise ValueError(f"Application {application.id} is not awaiting approval ({application.state.value}).")
     if not validate_email(to):
         raise ValueError(f"Invalid recipient address: {to!r}")
     if not allow_duplicate:
@@ -103,13 +159,36 @@ def approve_and_send(db: Session, application: Application, to: str, allow_dupli
     if wait > 0:
         raise SendDelayError(wait)
 
-    attachment_path = application.cv.file_path if application.cv else None
-    result = send_email(
-        to=to,
-        subject=application.subject,
-        body_text=application.cover_letter_body,
-        attachment_path=attachment_path,
+    # Claim the send before talking to Gmail: a conditional UPDATE only one
+    # request can win (SQLite serializes writes), so a double-click or two tabs
+    # can't both get past the checks above and send twice. Undone if Gmail fails.
+    claimed = (
+        db.query(Application)
+        .filter(
+            Application.id == application.id,
+            Application.state == ApplicationState.PENDING_APPROVAL,
+            Application.sent_at.is_(None),
+        )
+        .update({Application.state: ApplicationState.AWAITING_REPLY}, synchronize_session=False)
     )
+    db.commit()
+    db.refresh(application)
+    if not claimed:
+        raise AlreadySentError(application)
+
+    cv = application.cv
+    try:
+        result = send_email(
+            to=to,
+            subject=application.subject,
+            body_text=application.cover_letter_body,
+            attachment_path=cv.file_path if cv else None,
+            attachment_name=f"{safe_component(cv.name)}{Path(cv.file_path).suffix}" if cv else None,
+        )
+    except Exception:
+        application.state = ApplicationState.PENDING_APPROVAL
+        db.commit()
+        raise
 
     from app.applications.follow_ups import next_follow_up_due  # local import to avoid a cycle
 

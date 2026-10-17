@@ -1,0 +1,136 @@
+{% extends "base.html" %}
+{% block title %}{{ t("discovery.title") }}{% endblock %}
+{% block content %}
+  <h1>{{ t("discovery.title") }}</h1>
+  <p class="hint">{{ t("discovery.hint") }}</p>
+
+  {% if imported %}
+  <div class="card">
+    <p>{{ t("discovery.imported_found") }} {{ imported[0] }} · {{ t("discovery.imported_new") }} {{ imported[1] }} · {{ t("discovery.imported_existing") }} {{ imported[2] }} · {{ t("discovery.imported_known") }} {{ imported[3] }}</p>
+  </div>
+  {% endif %}
+
+  <div class="card">
+    <h2>{{ t("discovery.sources_title") }}</h2>
+    <table class="table">
+      <thead><tr><th>{{ t("discovery.source") }}</th><th class="cell-nowrap">{{ t("discovery.city") }}</th><th class="cell-nowrap">{{ t("discovery.pending") }}</th><th class="cell-nowrap">{{ t("discovery.unscreened") }}</th><th></th></tr></thead>
+      <tbody>
+      {% for s in sources %}
+        <tr>
+          <td>
+            <a href="/discovery?source_id={{ s.id }}">{{ s.name }}</a>
+            <span class="hint source-url" title="{{ s.url }}">{{ s.url }}</span>
+            {% if s.last_imported_at %}<span class="hint cell-line">{{ t("discovery.last_import") }} {{ s.last_imported_at.strftime("%Y-%m-%d") }}</span>{% endif %}
+            {% if s.last_error %}<span class="cell-line"></span><span class="badge badge-hard">{{ t("discovery.import_failed") }}</span> <span class="hint">{{ s.last_error }}</span>{% endif %}
+          </td>
+          <td class="cell-nowrap">{{ s.city or "—" }}</td>
+          <td>{{ stats[s.id].pending }}</td>
+          <td>{{ stats[s.id].unscreened }}</td>
+          <td class="row-action">
+            <form method="post" action="/discovery/sources/{{ s.id }}/import" data-loading-text="{{ t('discovery.importing') }}">
+              <button type="submit" class="secondary">{{ t("discovery.import_button") }}</button>
+            </form>
+            {% if stats[s.id].unscreened %}
+            <a class="button-link" href="/discovery/triage/step?source_id={{ s.id }}">{{ t("discovery.screen_button") }}</a>
+            {% endif %}
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    <details>
+      <summary>{{ t("discovery.add_source") }}</summary>
+      <p class="hint">{{ t("discovery.add_source_hint") }}</p>
+      <form method="post" action="/discovery/sources" class="inline-form">
+        <input type="text" name="name" required placeholder="{{ t('discovery.field.name') }}">
+        <input type="text" name="city" placeholder="{{ t('discovery.field.city') }}">
+        <input type="url" name="url" required placeholder="https://...">
+        <button type="submit">{{ t("common.save") }}</button>
+      </form>
+    </details>
+  </div>
+
+  <form method="get" action="/discovery" class="inline-form">
+    <select name="source_id">
+      <option value="0">{{ t("discovery.all_sources") }}</option>
+      {% for s in sources %}<option value="{{ s.id }}" {% if filter_source_id == s.id %}selected{% endif %}>{{ s.name }}</option>{% endfor %}
+    </select>
+    <select name="fit">
+      <option value="">{{ t("discovery.any_fit") }}</option>
+      {% for f in ("high", "medium", "low", "unknown", "unscreened") %}
+      <option value="{{ f }}" {% if filter_fit == f %}selected{% endif %}>{{ t("discovery.fit." ~ f) }}</option>
+      {% endfor %}
+    </select>
+    <select name="status">
+      {% for st in statuses %}<option value="{{ st.value }}" {% if filter_status == st.value %}selected{% endif %}>{{ t("discovery.status." ~ st.value) }}</option>{% endfor %}
+    </select>
+    <label><input type="checkbox" name="hide_hard" value="1" {% if filter_hide_hard %}checked{% endif %}> {{ t("discovery.hide_hard") }}</label>
+    <button type="submit" class="secondary">{{ t("discovery.filter") }}</button>
+  </form>
+
+  {% set return_to = request.url.path ~ ('?' ~ request.url.query if request.url.query else '') %}
+  {% if candidates %}<p class="hint"><span id="shown-count">{{ candidates | length }}</span> {{ t("discovery.shown") }}</p>{% endif %}
+    <table class="table discovery-table">
+      <colgroup><col class="col-decide"><col class="col-company"><col><col class="col-fit"></colgroup>
+      <thead><tr><th></th><th>{{ t("discovery.company") }}</th><th>{{ t("discovery.what_they_do") }}</th><th>{{ t("discovery.fit_label") }}</th></tr></thead>
+      <tbody>
+      {% for c in candidates %}
+        {% set tr = c.triage or {} %}
+        <tr id="candidate-{{ c.id }}">
+          <td>
+            {% if c.status.value == "PENDING" %}
+            <form method="post" action="/discovery/decide" class="row-decide">
+              <input type="hidden" name="candidate_ids" value="{{ c.id }}">
+              <input type="hidden" name="return_to" value="{{ return_to }}">
+              <button type="submit" name="action" value="approve" class="decide-yes" title="{{ t('discovery.approve_one') }}" aria-label="{{ t('discovery.approve_one') }}">✓</button>
+              <button type="submit" name="action" value="reject" class="decide-no" title="{{ t('discovery.reject_one') }}" aria-label="{{ t('discovery.reject_one') }}">✕</button>
+            </form>
+            {% endif %}
+          </td>
+          <td>
+            <strong>{{ tr.brand_name or c.name }}</strong>
+            {% if tr.brand_name %}<br><span class="hint">{{ c.name }}</span>{% endif %}
+            <br>{% if c.website_url %}<a href="{{ c.website_url }}" target="_blank" rel="noopener">{{ c.website_url }}</a>{% else %}
+              <span class="muted">{{ t("discovery.no_site") }}</span> ·
+              <a href="https://www.google.com/search?q={{ ((tr.brand_name or c.name) ~ ' ' ~ c.technopark) | urlencode }}" target="_blank" rel="noopener">{{ t("discovery.search_google") }}</a>
+              {% if c.status.value == "PENDING" %}
+              <form method="post" action="/discovery/candidates/{{ c.id }}/website" class="site-set">
+                <input type="hidden" name="return_to" value="{{ return_to }}">
+                <input type="url" name="website_url" required placeholder="{{ t('discovery.paste_site') }}">
+                <button type="submit" class="secondary">{{ t("common.save") }}</button>
+              </form>
+              {% endif %}
+            {% endif %}
+            <span class="hint cell-line">{{ c.technopark }}{% if c.city %} · {{ c.city }}{% endif %}</span>
+            {% if c.contact_email %}<span class="hint cell-line">{{ c.contact_email }}</span>{% endif %}
+            {% if c.company_id %}<br><a href="/companies/{{ c.company_id }}">{{ t("discovery.open_company") }}</a>{% endif %}
+          </td>
+          <td>
+            {% if tr.summary %}{{ tr.summary }}{% endif %}
+            {% if tr.sector %}<br><span class="hint">{{ tr.sector }}</span>{% endif %}
+            {% if c.sector %}<br><span class="hint">{{ t("discovery.directory_sector") }} {{ c.sector }}</span>{% endif %}
+            {% if tr.error %}<span class="muted">{{ tr.error }}</span>{% endif %}
+            {% for f in tr.flags or [] %}
+            <div class="evidence">
+              <span class="badge {{ 'badge-hard' if f.type == 'hard' else 'badge-soft' }}">{{ f.description }}</span>
+              "{{ f.evidence_snippet }}"
+            </div>
+            {% endfor %}
+          </td>
+          <td>
+            {% if c.triaged_at %}
+              <span class="badge {{ 'badge-state' if tr.fit == 'high' else '' }}">{{ t("discovery.fit." ~ (tr.fit or "unknown")) }}</span>
+              {% if tr.careers_page %}<br><span class="badge badge-soft">{{ t("discovery.careers_page") }}</span>{% endif %}
+              {% if tr.fit_reason %}<br><span class="hint">{{ tr.fit_reason }}</span>{% endif %}
+            {% else %}
+              <span class="muted">{{ t("discovery.fit.unscreened") }}</span>
+            {% endif %}
+          </td>
+        </tr>
+      {% else %}
+        <tr><td colspan="4" class="muted">{{ t("discovery.empty") }}</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  <script defer src="/static/discovery.js"></script>
+{% endblock %}

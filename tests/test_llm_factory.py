@@ -45,3 +45,28 @@ def test_gemini_provider_constructs_with_key(monkeypatch):
 
     get_settings.cache_clear()
     get_llm_provider.cache_clear()
+
+
+def test_draft_provider_uses_the_draft_model(monkeypatch):
+    from app.llm.factory import get_draft_llm_provider
+
+    monkeypatch.setenv("LLM_PROVIDER", "claude")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key-not-real")
+    monkeypatch.setenv("ANTHROPIC_MODEL", "claude-haiku-4-5")
+    monkeypatch.setenv("ANTHROPIC_DRAFT_MODEL", "claude-sonnet-5-5")
+    get_settings.cache_clear()
+    get_llm_provider.cache_clear()
+    get_draft_llm_provider.cache_clear()
+    try:
+        assert get_llm_provider()._model == "claude-haiku-4-5"
+        assert get_draft_llm_provider()._model == "claude-sonnet-5-5"
+
+        monkeypatch.setenv("ANTHROPIC_DRAFT_MODEL", "")  # empty = same as the main model
+        get_settings.cache_clear()
+        get_draft_llm_provider.cache_clear()
+        assert get_draft_llm_provider()._model == "claude-haiku-4-5"
+    finally:
+        monkeypatch.setenv("LLM_PROVIDER", "gemini")
+        get_settings.cache_clear()
+        get_llm_provider.cache_clear()
+        get_draft_llm_provider.cache_clear()

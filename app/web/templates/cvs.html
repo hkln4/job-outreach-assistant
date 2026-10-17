@@ -8,6 +8,10 @@
   <div class="warning"><h3>{{ t("cvs.required_title") }}</h3><p>{{ t("cvs.required_hint") }}</p></div>
   {% endif %}
 
+  {% if error %}
+  <div class="warning"><h3>{{ t("cvs.error.title") }}</h3><p>{{ t("cvs.error." ~ error) }}</p></div>
+  {% endif %}
+
   <form class="card" method="post" action="/cvs" enctype="multipart/form-data">
     <h2>{{ t("cvs.add_title") }}</h2>
     <label>{{ t("common.name") }}

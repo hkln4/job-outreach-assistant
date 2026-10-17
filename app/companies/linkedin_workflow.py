@@ -21,6 +21,7 @@ from app.companies.linkedin_fetch import fetch_linkedin_company
 from app.config import get_settings
 from app.llm.base import LLMProvider
 from app.llm.json_utils import parse_json_object
+from app.llm.untrusted import UNTRUSTED_RULE, wrap_untrusted
 from app.models import Company
 
 LINKEDIN_SYSTEM_PROMPT = """You are reading the raw text of a company's LinkedIn pages \
@@ -147,8 +148,8 @@ def linkedin_research_company(db: Session, llm: LLMProvider, company: Company) -
     )
 
     response = llm.generate(
-        prompt=_build_prompt(fetched),
-        system=LINKEDIN_SYSTEM_PROMPT,
+        prompt=wrap_untrusted(_build_prompt(fetched), label="LINKEDIN CONTENT"),
+        system=LINKEDIN_SYSTEM_PROMPT + "\n" + UNTRUSTED_RULE,
         temperature=0.0,
         max_output_tokens=1200,
     )
