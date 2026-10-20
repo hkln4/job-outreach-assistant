@@ -81,6 +81,9 @@ def test_deleting_a_cv_keeps_a_file_another_cv_still_uses(_tmp_cv_dir):
         ("cv.pdf", b"", "empty"),
         ("cv.pdf", b"x" * (cvs_routes.MAX_CV_BYTES + 1), "size"),
     ],
+    # Explicit ids: the default would embed the 10MB payload in the test name,
+    # and `pytest -v` printing that as one log line stalled the CI runner.
+    ids=["exe", "no-extension", "empty", "too-large"],
 )
 def test_rejected_uploads_create_nothing(filename, content, error):
     r = _upload("Rejected CV", filename=filename, content=content)
