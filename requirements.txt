@@ -1,6 +1,9 @@
 # Web / API
 fastapi==0.115.0
 uvicorn[standard]==0.32.1  # >=0.31.1 required by mcp
+# Transitive (starlette, httpx, mcp), pinned: 4.15 deprecated the
+# anyio.abc.BlockingPortal alias that starlette 0.38's TestClient still uses.
+anyio==4.14.2
 jinja2==3.1.4
 python-multipart==0.0.9
 
