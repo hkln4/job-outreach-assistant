@@ -13,6 +13,7 @@ import json
 import logging
 from dataclasses import dataclass, field
 
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.llm.base import LLMProvider
@@ -39,8 +40,21 @@ languages (company text may be Turkish, records are English).
 - Only use ids that appear in the list. Never invent ids.
 - For each chosen id, give a short reason (one sentence, English).
 - Output ONLY valid JSON, this exact shape:
-{{"item_ids": [int], "why": {{"<id>": string}}}}
+{{"item_ids": [int], "reasons": [{{"item_id": int, "why": string}}]}}
 """ + UNTRUSTED_RULE
+
+
+class _Reason(BaseModel):
+    item_id: int
+    why: str
+
+
+# Answer shape, sent as the structured-output schema (a comment, not a
+# docstring: docstrings end up in the schema the model reads). Reasons are a
+# list, not an id-keyed object - strict schemas can't describe free-form keys.
+class SelectionAnswer(BaseModel):
+    item_ids: list[int]
+    reasons: list[_Reason] = []
 
 
 @dataclass
@@ -132,7 +146,13 @@ def select_evidence(
     index = "\n".join(_index_line(item) for item in candidates)
     prompt = f"RECORDS:\n{index}\n\n{_company_context(company, target_position, application_reason)}"
     try:
-        response = llm.generate(prompt=prompt, system=SELECT_SYSTEM_PROMPT, temperature=0.0, max_output_tokens=800)
+        response = llm.generate(
+            prompt=prompt,
+            system=SELECT_SYSTEM_PROMPT,
+            temperature=0.0,
+            max_output_tokens=800,
+            json_schema=SelectionAnswer.model_json_schema(),
+        )
     except Exception as exc:  # noqa: BLE001 - a failed ranking must not block drafting
         return _fallback(candidates, f"{type(exc).__name__}: {exc}"[:300])
     data = parse_json_object(response.text, fallback={})
@@ -148,9 +168,15 @@ def select_evidence(
     if not chosen:
         return _fallback(candidates, "the answer named none of the offered record ids")
 
+    # "reasons" list is the current shape; the id-keyed "why" object is what
+    # the prompt asked for before structured outputs, still accepted.
     raw_why = data.get("why") if isinstance(data.get("why"), dict) else {}
+    pairs = list(raw_why.items())
+    for entry in data.get("reasons") if isinstance(data.get("reasons"), list) else []:
+        if isinstance(entry, dict):
+            pairs.append((entry.get("item_id"), entry.get("why")))
     why = {}
-    for key, reason in raw_why.items():
+    for key, reason in pairs:
         ids = _parse_ids([key])
         if ids and ids[0] in by_id and isinstance(reason, str):
             why[ids[0]] = reason.strip()

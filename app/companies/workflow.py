@@ -13,6 +13,7 @@ Research answers, from the fetched pages only:
 import re
 from datetime import datetime, timezone
 
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.companies.fetch import MIN_USABLE_RESEARCH_CHARS, fetch_company_research
@@ -63,6 +64,46 @@ Output ONLY valid JSON, this exact shape:
 "people": [{"name": string, "role": string, "email": string | null}], \
 "fit": {"recommended_position": string | null, "reasoning": string} | null}
 """
+
+class _Position(BaseModel):
+    title: str
+    details: str = ""
+
+
+class _Careers(BaseModel):
+    has_careers_page: bool = False
+    application_form: bool = False
+    external_portal: str | None = None
+    notes: str = ""
+
+
+class _Email(BaseModel):
+    email: str
+    context: str = ""
+
+
+class _Person(BaseModel):
+    name: str
+    role: str = ""
+    email: str | None = None
+
+
+class _Fit(BaseModel):
+    recommended_position: str | None = None
+    reasoning: str = ""
+
+
+# Answer shape, sent as the structured-output schema. The parsed dict is still
+# read defensively below - the schema is the request, not a guarantee.
+class ResearchAnswer(BaseModel):
+    summary: str = ""
+    open_positions: list[_Position] = []
+    careers: _Careers = _Careers()
+    channels: list[str] = []
+    emails: list[_Email] = []
+    people: list[_Person] = []
+    fit: _Fit | None = None
+
 
 RESEARCH_FALLBACK = {
     "summary": "",
@@ -146,6 +187,7 @@ def research_company(db: Session, llm: LLMProvider, company: Company) -> Company
         company.research = {
             "pages": result["pages"],
             "content_chars": content_chars,
+            "content_safety": result.get("content_safety"),
             "empty": True,
             "fetched_at": datetime.now(timezone.utc).isoformat(),
         }
@@ -162,6 +204,7 @@ def research_company(db: Session, llm: LLMProvider, company: Company) -> Company
         system=RESEARCH_SYSTEM_PROMPT + "\n" + UNTRUSTED_RULE,
         temperature=0.0,
         max_output_tokens=1500,
+        json_schema=ResearchAnswer.model_json_schema(),
     )
     data = parse_json_object(response.text, fallback=RESEARCH_FALLBACK)
 
@@ -216,6 +259,9 @@ def research_company(db: Session, llm: LLMProvider, company: Company) -> Company
     company.research = {
         "pages": result["pages"],
         "content_chars": content_chars,
+        # What the sanitizer stripped/flagged before the LLM saw the text -
+        # the company page warns when it looks aimed at an AI reader.
+        "content_safety": result.get("content_safety"),
         "summary": data.get("summary", ""),
         "open_positions": data.get("open_positions", []) or [],
         "careers": {

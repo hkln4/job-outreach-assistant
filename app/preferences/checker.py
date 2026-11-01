@@ -2,6 +2,10 @@
 flags conflicts against the owner's hard/soft preferences using only the extracted
 company text, never the company's name or reputation. A flag for the owner's
 judgment, never an automatic verdict."""
+from typing import Literal
+
+from pydantic import BaseModel
+
 from app.llm.base import LLMProvider
 from app.llm.json_utils import parse_json_object
 from app.llm.untrusted import UNTRUSTED_RULE, wrap_untrusted
@@ -23,6 +27,17 @@ from the company name or general reputation. Website text can mislead either way
 CHECK_FALLBACK = {"flags": []}
 
 
+class _Flag(BaseModel):
+    preference_id: int
+    evidence_snippet: str
+    confidence: Literal["low", "medium", "high"]
+
+
+# Answer shape, sent as the structured-output schema.
+class CheckAnswer(BaseModel):
+    flags: list[_Flag]
+
+
 def check_company(llm: LLMProvider, company_text: str, preferences: list[Preference]) -> list[dict]:
     if not preferences:
         return []
@@ -33,6 +48,12 @@ def check_company(llm: LLMProvider, company_text: str, preferences: list[Prefere
     )
     prompt = f"OWNER PREFERENCES:\n{pref_list}\n\nCOMPANY TEXT:\n{wrap_untrusted(company_text[:24000])}"
 
-    response = llm.generate(prompt=prompt, system=CHECK_SYSTEM_PROMPT, temperature=0.0, max_output_tokens=1024)
+    response = llm.generate(
+        prompt=prompt,
+        system=CHECK_SYSTEM_PROMPT,
+        temperature=0.0,
+        max_output_tokens=1024,
+        json_schema=CheckAnswer.model_json_schema(),
+    )
     data = parse_json_object(response.text, fallback=CHECK_FALLBACK)
     return data.get("flags", [])

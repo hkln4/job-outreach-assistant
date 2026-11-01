@@ -115,6 +115,29 @@ class Preference(Base):
     signals: Mapped[list] = mapped_column(JSON, default=list)  # optional keywords/notes
 
 
+# Language codes the owner can pick for outgoing letters, with the name the
+# drafting prompt uses. "" (not listed) = no preference: follow the cover
+# letter template's language, else Turkish.
+EMAIL_LANGUAGES = {"tr": "Turkish", "en": "English"}
+
+
+class OwnerSettings(Base):
+    """Single-row owner settings that aren't facts about the owner (those live
+    on Profile) - kept apart so saving one doesn't create an empty Profile."""
+
+    __tablename__ = "owner_settings"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    email_language: Mapped[str] = mapped_column(String, default="")
+
+
+def get_email_language(db) -> str:
+    """The owner's chosen letter language code, or "" for no preference."""
+    settings = db.query(OwnerSettings).first()
+    language = settings.email_language if settings else ""
+    return language if language in EMAIL_LANGUAGES else ""
+
+
 class CV(Base):
     """A CV variant available for attachment to applications."""
 

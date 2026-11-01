@@ -279,7 +279,7 @@ DRAFT_V2 = _draft(
 class DemoLLM(LLMProvider):
     """Keys off each caller's system prompt; returns deterministic canned JSON."""
 
-    def generate(self, prompt, *, system=None, temperature=0.2, max_output_tokens=2048):
+    def generate(self, prompt, *, system=None, temperature=0.2, max_output_tokens=2048, json_schema=None):
         s = system or ""
         if "conflicts with" in s:  # preference check during research
             data = {"flags": []}

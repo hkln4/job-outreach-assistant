@@ -8,8 +8,8 @@ class FakeLLMProvider(LLMProvider):
         self._text = text
         self.calls: list[dict] = []
 
-    def generate(self, prompt, *, system=None, temperature=0.2, max_output_tokens=2048):
-        self.calls.append({"prompt": prompt, "system": system})
+    def generate(self, prompt, *, system=None, temperature=0.2, max_output_tokens=2048, json_schema=None):
+        self.calls.append({"prompt": prompt, "system": system, "json_schema": json_schema})
         return LLMResponse(text=self._text, model="fake", provider="fake")
 
 
@@ -20,7 +20,7 @@ class SequencedLLMProvider(LLMProvider):
         self._texts = list(texts)
         self.calls: list[dict] = []
 
-    def generate(self, prompt, *, system=None, temperature=0.2, max_output_tokens=2048):
-        self.calls.append({"prompt": prompt, "system": system})
+    def generate(self, prompt, *, system=None, temperature=0.2, max_output_tokens=2048, json_schema=None):
+        self.calls.append({"prompt": prompt, "system": system, "json_schema": json_schema})
         text = self._texts.pop(0) if self._texts else "{}"
         return LLMResponse(text=text, model="fake", provider="fake")

@@ -80,7 +80,9 @@ from technopark directories:
   synthesized, the page shows a clean summary/skills/roles view; ingestion
   tooling collapses into "Manage sources."
 - **Preferences**: hard/soft constraints, evidence-first checker. A hard match
-  blocks drafting until you confirm it.
+  blocks drafting until you confirm it. The same page sets the letter language
+  (Turkish, English, or no preference - then the cover letter template's
+  language, else Turkish).
 - **Companies**: adding one with a site auto-runs research - fetches home +
   careers/about/contact pages (plus a few individual job postings), writes a
   short AI summary, runs the preference check, picks up the company's LinkedIn
@@ -121,7 +123,9 @@ from technopark directories:
   against your CV variants, with a visible warning + manual override if nothing
   matched (a CV must always be attached - see CLAUDE.md section 9). Drafting is
   refused outright when research came back empty, so the model is never asked to
-  write about a blank page. The model's answer is schema-validated, and any
+  write about a blank page. The model is asked for its answer through the provider's native
+  structured-output mode (a JSON schema built from the same Pydantic model), the
+  answer is still schema-validated, and any
   source URL that isn't one of the pages research actually fetched is removed
   and shown to you.
 - **Review loop**: green Approve / red Reject side by side; Reject opens a
@@ -132,7 +136,13 @@ from technopark directories:
   be discarded (before sending only - sent applications are kept as history).
   A "check before sending" box flags what to look at - length off target, a
   stock cover-letter phrase, removed sources, personal claims the model couldn't
-  back - without blocking the send.
+  back - without blocking the send. A second, cheap model call that didn't write
+  the draft reviews it against the same company text and profile records and
+  adds its notes there (unsupported claims, generic phrases, language, length,
+  a weak company reason, irrelevant projects), each quoting the draft. A note
+  whose quote isn't actually in the draft is dropped. "Rewrite with these notes"
+  sends them through the normal reject/regenerate path. Turn it off with
+  `DRAFT_REVIEW_ENABLED=false`.
 - **LinkedIn research** (optional, off by default): per company, how many people
   LinkedIn lists, what they do, whether the company still posts, what it lists
   as open, and who is worth contacting. See
@@ -144,7 +154,7 @@ from technopark directories:
   LLM-triggering action so nothing looks frozen mid-request. One control scale
   across pages (36 px buttons/inputs, 28 px inside tables), no sideways scrolling
   down to phone width, and pages keep their scroll position after an action.
-- 190 passing tests (`tests/`), including route-level end-to-end flow tests.
+- 279 passing tests (`tests/`), including route-level end-to-end flow tests.
 
 **To actually use it**, pick a provider in `.env` (`LLM_PROVIDER=gemini` or
 `claude`) and set that provider's API key - everything that calls the LLM
@@ -277,15 +287,29 @@ and what it guards against:
 
 - **Localhost only, no auth.** Don't expose the port; anyone who can reach it can
   send email as you.
+- **Cross-site requests are refused.** Not exposing the port isn't enough on its
+  own: any website open in your browser could submit a hidden form to
+  `127.0.0.1` (say, rewrite a pending draft and then approve it). Every
+  POST/PUT/PATCH/DELETE must prove it came from the app's own pages
+  (`Sec-Fetch-Site: same-origin`, or a matching `Origin`/`Referer` on browsers
+  that don't send it). Requests that can't prove this get a 403. Requests
+  addressed to any host other than `127.0.0.1`/`localhost` are refused too,
+  which blocks DNS-rebinding pages (`ALLOWED_HOSTS` in `.env`).
 - **Every send is human-approved, exactly once.** The send path refuses anything
   that isn't awaiting approval or that already has a send timestamp or Gmail id,
   and claims the application with a conditional update before calling Gmail, so
   a double-click or a second tab can't send twice. A sent application can't be
   edited, regenerated, or moved back to a draft state by hand.
-- **Scraped text is data, not instructions.** Website and LinkedIn text is fenced
-  as untrusted in every prompt, and the model is told never to follow
-  instructions inside it. The app, not the model, decides which sources and
-  profile records count.
+- **Scraped text is data, not instructions.** Before any page text reaches a
+  prompt, the app strips what a visitor wouldn't see: hidden elements (`hidden`,
+  `aria-hidden`, inline styles that hide text or push it off-screen), comments,
+  `<template>`/`<svg>` text, zero-width and bidi control characters, and Unicode
+  tag characters. Lines that read like instructions to an AI ("ignore previous
+  instructions", "sen bir yapay zekasın") are flagged, and the company page
+  shows a warning with the evidence when a site looks like it targets an AI
+  reader. Website and LinkedIn text is also fenced as untrusted in every prompt,
+  and the model is told never to follow instructions inside it. The app, not the
+  model, decides which sources and profile records count.
 - **Secrets stay local.** `.env`, `credentials.json` (Gmail OAuth client) and
   `token.json` (your Gmail token) are git-ignored and never leave the machine
   except to Google/the LLM provider.
@@ -340,5 +364,5 @@ scripts/
   gmail_smoke_test.py    manual OAuth + send verification
   send_test_email.py      send a real test mail (for the reply-check flow)
   demo/                    throwaway DB + stub server used to record the demo GIF
-tests/                 pytest suite (190 tests)
+tests/                 pytest suite (279 tests)
 ```

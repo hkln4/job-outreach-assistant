@@ -65,14 +65,31 @@
   </div>
   {% endif %}
 
-  {% if draft_warnings %}
+  {% set review_issues = draft_review.issues if draft_review and draft_review.issues else [] %}
+  {% if draft_warnings or review_issues or (draft_review and draft_review.error) %}
   <div class="warning" id="draft-checks">
     <h3>{{ t("draft_check.title") }}</h3>
+    {% if draft_warnings %}
     <ul>
       {% for key, detail in draft_warnings %}
       <li>{{ t(key) }}{% if detail %} <span class="muted">{{ detail }}</span>{% endif %}</li>
       {% endfor %}
     </ul>
+    {% endif %}
+    {% if review_issues %}
+    <p><strong>{{ t("draft_review.title") }}</strong>{% if draft_review.overall %} <span class="muted">{{ draft_review.overall }}</span>{% endif %}</p>
+    <ul class="draft-review">
+      {% for issue in review_issues %}
+      <li><span class="badge badge-soft">{{ t("draft_review.kind." ~ issue.kind) }}</span> <q>{{ issue.quote }}</q> - {{ issue.suggestion }}</li>
+      {% endfor %}
+    </ul>
+    <form method="post" action="/applications/{{ application.id }}/reject" data-loading-text="{{ t('loading.regenerating') }}">
+      <input type="hidden" name="feedback" value="{{ review_feedback }}">
+      <button type="submit" class="secondary">{{ t("draft_review.rewrite") }}</button>
+    </form>
+    {% elif draft_review and draft_review.error %}
+    <p class="muted">{{ t("draft_review.failed") }} {{ draft_review.error }}</p>
+    {% endif %}
   </div>
   {% endif %}
 

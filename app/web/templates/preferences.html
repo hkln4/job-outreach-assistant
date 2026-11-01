@@ -4,6 +4,20 @@
   <h1>{{ t("preferences.title") }}</h1>
   <p class="hint">{{ t("preferences.hint") }}</p>
 
+  <form class="card" method="post" action="/preferences/email-language">
+    <h2>{{ t("preferences.language.title") }}</h2>
+    <p class="hint">{{ t("preferences.language.hint") }}</p>
+    <label>{{ t("preferences.language.label") }}
+      <select name="email_language">
+        <option value="" {% if not email_language %}selected{% endif %}>{{ t("preferences.language.auto") }}</option>
+        {% for code in email_languages %}
+          <option value="{{ code }}" {% if email_language == code %}selected{% endif %}>{{ t("preferences.language." ~ code) }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <button type="submit">{{ t("preferences.language.save") }}</button>
+  </form>
+
   <form class="card" method="post" action="/preferences">
     <h2>{{ t("preferences.add_title") }}</h2>
     <label>{{ t("common.description") }}

@@ -5,7 +5,7 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
 from app.db import get_db
-from app.models import Preference, PreferenceType
+from app.models import EMAIL_LANGUAGES, OwnerSettings, Preference, PreferenceType, get_email_language
 from app.web.render import render
 
 router = APIRouter(prefix="/preferences", tags=["preferences"])
@@ -15,7 +15,28 @@ templates = Jinja2Templates(directory="app/web/templates")
 @router.get("")
 def list_preferences(request: Request, db: Session = Depends(get_db)):
     preferences = db.query(Preference).order_by(Preference.id.desc()).all()
-    return render(templates, request, "preferences.html", {"preferences": preferences})
+    return render(
+        templates,
+        request,
+        "preferences.html",
+        {
+            "preferences": preferences,
+            "email_language": get_email_language(db),
+            "email_languages": list(EMAIL_LANGUAGES),
+        },
+    )
+
+
+@router.post("/email-language")
+def set_email_language(email_language: str = Form(""), db: Session = Depends(get_db)):
+    """Language for outgoing letters (drafts and escalations); empty = no preference."""
+    settings = db.query(OwnerSettings).first()
+    if settings is None:
+        settings = OwnerSettings()
+        db.add(settings)
+    settings.email_language = email_language if email_language in EMAIL_LANGUAGES else ""
+    db.commit()
+    return RedirectResponse(url="/preferences", status_code=303)
 
 
 @router.post("")

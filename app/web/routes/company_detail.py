@@ -28,7 +28,7 @@ from app.db import get_db
 from app.email_send.gmail_client import validate_email
 from app.llm.base import LLMProvider
 from app.models import Application, Company, Contact
-from app.web.deps import get_draft_llm, get_llm
+from app.web.deps import get_draft_llm, get_llm, get_review_llm
 from app.web.errors import NotFoundError
 from app.web.render import render
 
@@ -240,6 +240,7 @@ def draft(
     application_reason: str = Form(""),
     db: Session = Depends(get_db),
     llm: LLMProvider = Depends(get_draft_llm),
+    review_llm: LLMProvider | None = Depends(get_review_llm),
 ):
     """Both fields optional: the dashboard's one-click draft posts neither; the
     company page's form lets the owner fix the position and/or write the reason
@@ -248,7 +249,12 @@ def draft(
     if has_unconfirmed_hard_exclusion(company):
         return RedirectResponse(url=f"/companies/{company_id}", status_code=303)
     application = create_draft_application(
-        db, llm, company, target_position=target_position, application_reason=application_reason
+        db,
+        llm,
+        company,
+        target_position=target_position,
+        application_reason=application_reason,
+        review_llm=review_llm,
     )
     return RedirectResponse(url=f"/applications/{application.id}", status_code=303)
 

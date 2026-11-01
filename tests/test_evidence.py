@@ -116,6 +116,7 @@ def test_selection_keeps_only_given_ids_and_always_a_cv(seeded):
     assert f"[E{repo_a}]" in draft_call["prompt"]
     assert f"[E{ids['owner/repo-1']}]" not in draft_call["prompt"]
     assert "<<<UNTRUSTED COMPANY CONTENT>>>" in llm.calls[0]["prompt"]
+    assert llm.calls[0]["json_schema"] is not None and draft_call["json_schema"] is not None
 
 
 def test_broken_selection_falls_back_and_still_drafts(seeded):
@@ -185,3 +186,15 @@ def test_a_source_ingested_twice_is_offered_once(seeded):
     finally:
         db.delete(dup)
         db.commit()
+
+
+def test_selection_reasons_list_shape(seeded):
+    """The structured-output shape: reasons as a list of {item_id, why}."""
+    db, company, ids = seeded
+    repo_a = ids["owner/repo-0"]
+    select = json.dumps({"item_ids": [repo_a], "reasons": [{"item_id": repo_a, "why": "Same domain."}, {"item_id": 999999, "why": "x"}]})
+    llm = SequencedLLMProvider([select, _draft_json([repo_a])])
+
+    application = create_draft_application(db, llm, company)
+
+    assert application.evidence[0]["why"] == "Same domain."

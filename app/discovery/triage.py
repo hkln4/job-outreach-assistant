@@ -91,7 +91,13 @@ def _screen(llm: LLMProvider, prompt: str) -> TriageResult | None:
     for attempt in range(2):
         if attempt:
             prompt += "\n\nYour previous answer was not valid JSON. Output ONLY the JSON object - no comments."
-        response = llm.generate(prompt=prompt, system=TRIAGE_SYSTEM_PROMPT, temperature=0.0, max_output_tokens=600)
+        response = llm.generate(
+            prompt=prompt,
+            system=TRIAGE_SYSTEM_PROMPT,
+            temperature=0.0,
+            max_output_tokens=600,
+            json_schema=TriageResult.model_json_schema(),
+        )
         data = parse_json_object(response.text, fallback={})
         if "parse_error" in data:
             continue

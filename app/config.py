@@ -23,6 +23,10 @@ class Settings(BaseSettings):
     anthropic_draft_model: str = "claude-sonnet-5-5"
     gemini_draft_model: str = ""
 
+    # Independent reviewer pass on every draft (app/applications/draft_review.py):
+    # one extra call on the reading model, shown in "check before sending".
+    draft_review_enabled: bool = True
+
     # Storage
     database_url: str = "sqlite:///data/app.db"
 
@@ -45,7 +49,7 @@ class Settings(BaseSettings):
     send_delay_seconds: int = 60
 
     # LinkedIn company research (flag-gated external-data provider, CLAUDE.md
-    # section 11). Runs stickerdaniel/linkedin-mcp-server over stdio with a
+    # section 9). Runs stickerdaniel/linkedin-mcp-server over stdio with a
     # dedicated throwaway LinkedIn account - see README "LinkedIn research".
     linkedin_research_enabled: bool = False
     # PyPI name is mcp-server-linkedin (linkedin-mcp-server on PyPI is an
@@ -68,6 +72,9 @@ class Settings(BaseSettings):
     # App server
     app_host: str = "127.0.0.1"
     app_port: int = 8000
+    # Hostnames the app answers to (DNS-rebinding guard, app/web/security.py).
+    # Comma-separated; ports are not part of the match.
+    allowed_hosts: str = "127.0.0.1,localhost,::1"
 
 
 @lru_cache

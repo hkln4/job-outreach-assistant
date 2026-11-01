@@ -60,3 +60,36 @@ def test_generate_does_not_retry_non_rate_limit_errors(monkeypatch):
     except ValueError:
         pass
     assert calls["count"] == 1
+
+
+def test_schema_requests_json_output():
+    provider = GeminiProvider(api_key="dummy-key-not-real", model="gemini-3.6-flash")
+    calls = []
+
+    def fake_create(**kwargs):
+        calls.append(kwargs)
+        return SimpleNamespace(output_text="{}")
+
+    provider._client.interactions.create = fake_create
+    schema = {"type": "object", "properties": {"a": {"type": "integer"}}}
+
+    provider.generate("hello")
+    provider.generate("hello", json_schema=schema)
+
+    assert "response_format" not in calls[0]
+    assert calls[1]["response_mime_type"] == "application/json"
+    assert calls[1]["response_format"] == {"type": "text", "mime_type": "application/json", "schema": schema}
+
+
+def test_temperature_is_not_sent_and_zero_means_a_fixed_seed():
+    """The Interactions API has no temperature field - the SDK used to drop it
+    silently. Deterministic calls (temperature 0) get a fixed seed instead."""
+    provider = GeminiProvider(api_key="dummy-key-not-real", model="gemini-3.6-flash")
+    calls = []
+    provider._client.interactions.create = lambda **kwargs: calls.append(kwargs) or SimpleNamespace(output_text="{}")
+
+    provider.generate("extract", temperature=0.0, max_output_tokens=500)
+    provider.generate("write", temperature=0.3, max_output_tokens=900)
+
+    assert calls[0]["generation_config"] == {"max_output_tokens": 500, "seed": 0}
+    assert calls[1]["generation_config"] == {"max_output_tokens": 900}

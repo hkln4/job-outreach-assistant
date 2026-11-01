@@ -14,7 +14,7 @@ from fastapi.staticfiles import StaticFiles
 from app.config import get_settings
 from app.db import SessionLocal, init_db
 from app.models import CV
-from app.web.errors import register_error_handlers
+from app.web.errors import register_error_handlers, render_error
 from app.web.routes import (
     applications,
     company_detail,
@@ -26,6 +26,7 @@ from app.web.routes import (
     preferences,
     profile,
 )
+from app.web.security import cross_site_reason, host_is_allowed
 
 EXEMPT_PATH_PREFIXES = ("/cvs", "/static", "/set-lang", "/docs", "/openapi.json", "/redoc")
 
@@ -58,6 +59,21 @@ async def require_at_least_one_cv(request: Request, call_next):
     if not has_cv:
         return RedirectResponse(url="/cvs")
 
+    return await call_next(request)
+
+
+# Registered after the onboarding gate so it wraps it and runs first: a forged
+# request is refused before anything else looks at it.
+@app.middleware("http")
+async def block_cross_site_requests(request: Request, call_next):
+    """No login, so the owner's browser is the boundary - see app/web/security.py."""
+    if not host_is_allowed(request):
+        return render_error(
+            request, "forbidden", f"Host {request.headers.get('host', '')!r} is not allowed.", 403
+        )
+    reason = cross_site_reason(request)
+    if reason is not None:
+        return render_error(request, "forbidden", f"Cross-site {request.method} refused: {reason}.", 403)
     return await call_next(request)
 
 

@@ -9,7 +9,7 @@ Project guide for the coding agent. Read this fully before working on the projec
 - **Purpose:** A personal tool that automates and standardizes job-application outreach to tech companies (primarily Ankara). It turns a curated list of target companies into tailored, human-approved application emails, tracks every application, and escalates to individual employees when a company does not respond.
 - **Primary goal:** actual personal use. Secondary: portfolio project. When trade-offs arise, favor a working, reliable tool over architectural showmanship - but keep it clean enough to show.
 - **Single user** (the owner). No multi-tenant auth or account system is needed.
-- **Language:** everything is in **English** - code, identifiers, comments, UI, generated cover letters, and all stored content.
+- **Language:** code, identifiers, comments, prompts and stored records are in **English**. The UI is English with a Turkish toggle (labels only). **Outgoing letters are the exception:** they are written in Turkish or English. The drafting prompt (`app/applications/drafting.py`) uses the letter language the owner picks on the Preferences page (`OwnerSettings.email_language`: Turkish / English / no preference). With no preference it uses the language of the owner's cover-letter template, otherwise Turkish. Follow-ups reuse the language of the original email.
 - A one-time **Profile Builder** (section 3) produces a durable, detailed profile of the owner. A **Preferences** layer (section 4) warns about companies that conflict with the owner's constraints. Both feed the per-company workflow.
 
 ---
@@ -83,8 +83,9 @@ Scope note: preferences cover things to **avoid or require**. Positive role targ
 5. **Review (human-in-the-loop).**
    - **Approve** -> send via the Gmail API with the correct CV attached.
    - **Reject** -> owner enters free-text feedback -> the LLM regenerates the draft. Loop until approved.
+   - **Reviewer pass** (`app/applications/draft_review.py`, `DRAFT_REVIEW_ENABLED`, on by default): after every draft/regenerate, one call on the reading model critiques the draft (it never rewrites it). Its issues appear in "check before sending" next to the deterministic checks (`app/applications/draft_checks.py`). Issues whose quote isn't in the draft are dropped, and the review never blocks a send.
 6. **Track.** The application is recorded and moves through its state lifecycle. **Past applications are retained with their final state.**
-7. **Escalate (employee fallback).** If the company's generic address does not reply within a threshold, the owner can send a tailored email to specific employees at that company. In v1, employee contacts are **entered manually** (see Deferred).
+7. **Escalate (employee fallback).** If the company's generic address does not reply within a threshold, the owner can send a tailored email to specific employees at that company. Contacts are entered by the owner, or confirmed by the owner from people named on the company's own pages or in LinkedIn research (section 9) - never created automatically. Automated email discovery stays deferred (section 11).
 
 ---
 
@@ -95,6 +96,8 @@ Scope note: preferences cover things to **avoid or require**. Positive role targ
 **ProfileItem** (one per source item: repo / CV / page / LinkedIn) - `id`, `source_type`, `source_ref`, `extracted` (structured: purpose, stack, role, highlights), `status` (`analyzed` / `skipped` / `needs_review`), `source_urls[]`
 
 **Preference** - `id`, `description`, `type` (`hard` | `soft`), `signals[]` (optional keywords/notes to aid matching)
+
+**OwnerSettings** (single row) - `email_language` (`tr` | `en` | empty = no preference). Settings that aren't facts about the owner; kept off Profile so saving one never creates an empty Profile.
 
 **CV** - `id`, `name`, `target_role`, `file_path`, `notes`
 
@@ -121,16 +124,19 @@ Scope note: preferences cover things to **avoid or require**. Positive role targ
 ## 8. LLM Layer (provider-agnostic)
 
 - All model calls go through **one internal interface** (e.g. `LLMProvider.generate(...)`). No provider SDK is called directly from business logic.
-- **Default provider: Gemini** (a Flash-class model is enough for reading page text, per-repo analysis, preference checks, and writing cover letters). Key from Google AI Studio, covered by the owner's Google AI Pro subscription; keep low-volume usage inside the subscription/free quota.
-- **Claude provider is implemented but inactive.** `ANTHROPIC_API_KEY` is left **empty** in `.env`. When funded later, set the key and flip `LLM_PROVIDER=claude` - no other code changes.
-- **Config** (`.env`): `LLM_PROVIDER` (gemini|claude), `GEMINI_API_KEY`, `ANTHROPIC_API_KEY` (empty for now), plus model names per provider.
+- **Two supported providers, selected by `LLM_PROVIDER`** (`gemini` | `claude`). The code default in `app/config.py` is `gemini`; the owner currently runs `claude` via `.env`. Switching is a config change only - `app/llm/factory.py` is the only place that branches on the provider name.
+- **Two models per provider:** a cheap **reading model** for research, extraction, evidence selection, preference checks and triage (`get_llm_provider`), and a stronger **draft model** for letters that go to a company - drafts, follow-ups, escalations (`get_draft_llm_provider`).
+  - Claude: `ANTHROPIC_MODEL` (reading, default `claude-haiku-4-5`) and `ANTHROPIC_DRAFT_MODEL` (letters, default `claude-sonnet-5-5`).
+  - Gemini: `GEMINI_MODEL` (reading, default `gemini-3.6-flash`) and `GEMINI_DRAFT_MODEL` (letters; empty = use `GEMINI_MODEL`). Key from Google AI Studio; keep low-volume usage inside the subscription/free quota. The Interactions API takes no `temperature`: the provider doesn't send it, and gives `temperature=0` calls a fixed `seed` instead.
+- **Config** (`.env`): `LLM_PROVIDER`, `GEMINI_API_KEY`, `ANTHROPIC_API_KEY`, plus the model names above.
+- **Structured output:** `LLMProvider.generate(..., json_schema=...)` takes a plain JSON Schema (`Model.model_json_schema()`) and uses the provider's native mode (Claude `output_config.format`, Gemini `response_format`). Callers still parse with `parse_json_object` and validate with Pydantic - the schema is the request, the app-side check is the guarantee.
 - **Cost discipline:** the biggest lever is how much text is sent. Always send extracted + trimmed text, never raw HTML. Process source items one at a time (profile builder) with trimmed inputs. Cache extracted research/analysis so a regenerate does not re-fetch or re-send.
 
 ---
 
 ## 9. Rules & Constraints (must follow)
 
-- **English everywhere.**
+- **English everywhere** except outgoing letters, which follow the language rule in section 1.
 - **Completeness is enforced by the app,** never left to the model: enumerate items deterministically and track them in a coverage ledger (section 3).
 - **Preference check every company** during research. Hard-exclusion conflicts block drafting until the owner confirms; every warning cites on-site evidence (snippet + URL).
 - **Evidence-first.** No claim - about a company or the owner - without a verifiable source. Surface sources at review. Unknowns must be explicit. If it cannot be verified, do not claim it.
@@ -138,6 +144,8 @@ Scope note: preferences cover things to **avoid or require**. Positive role targ
 - **Email is the definitive channel.** Other channels are informational feedback only.
 - **Deliverability.** Validate the recipient address before sending; add a delay between sends; never send to the same company/contact twice (dedup).
 - **Attachments.** Always attach the exact CV variant chosen for that application.
+- **Local UI is guarded against cross-site requests.** There is no login, so `app/web/security.py` refuses requests to hosts other than localhost (DNS rebinding) and any POST/PUT/PATCH/DELETE that can't prove it came from the app's own pages (`Sec-Fetch-Site`, then `Origin`/`Referer`). New routes get this automatically; never add an exemption. Tests send `Sec-Fetch-Site: same-origin` by default (`tests/conftest.py`).
+- **Fetched pages are sanitized before any prompt.** `app/companies/sanitize.py` strips hidden elements and invisible characters and flags instruction-shaped lines; the report is stored as `research.content_safety` and shown on the company page. This complements the `<<<UNTRUSTED>>>` fence (`app/llm/untrusted.py`) - keep both.
 - **No scraping of protected data.** Fetch only public pages the owner is entitled to read. The owner's own LinkedIn data is ingested only via their uploaded export.
 - **LinkedIn company research** is allowed only under all of these: gated behind `LINKEDIN_RESEARCH_ENABLED` (off by default), triggered by hand for one company at a time (never on company creation, never in a bulk loop), run through `mcp-server-linkedin` (stickerdaniel/linkedin-mcp-server) with a **dedicated throwaway LinkedIn account**, and limited to reading company pages - the messaging and connection-request tools are never called. LinkedIn's terms forbid automated access and the account can be restricted, which is why it is opt-in, low-volume, and kept off the owner's real account. Findings are cached and re-fetched only when the owner asks.
 
@@ -153,22 +161,25 @@ Scope note: preferences cover things to **avoid or require**. Positive role targ
 - Gmail API send with the correct CV attachment.
 - Application lifecycle tracking, including retained history of past applications.
 - Employee fallback with **manually provided** employee contacts.
-- Provider-agnostic LLM layer with Gemini active and Claude wired but inactive.
+- Provider-agnostic LLM layer with Gemini and Claude both supported (selected by `LLM_PROVIDER`).
+
+### Built beyond v1
+
+These were in section 11 and are now implemented:
+
+- **LinkedIn company research** - headcount, what the employees do, who to contact, activity signal, and listed openings - under the constraints in section 9.
+- **Company discovery from technopark directories** (`/discovery`). The owner imports a directory (built-in readers for ODTÜ Teknokent, Bilkent Cyberpark, Hacettepe Teknokent, OSTİM Teknopark and Ankara Üniversitesi Teknokent, or any directory page they add), the app screens each candidate's homepage (what it does, fit with `target_roles`, preference conflicts with on-site evidence), and only owner-approved candidates become Companies, tagged with city/technopark. Websites come only from the directory itself - name -> URL guessing stays deferred. Every step is owner-triggered; rejected candidates are never suggested again.
 
 ---
 
-## 11. Deferred / Backup (v2 - do NOT build in v1)
+## 11. Deferred / Backup (not built - do NOT build without the owner asking)
 
 - Automatic name -> website resolution (search-based) with owner confirmation.
 - Automated contact/email discovery + company enrichment via Hunter.io (or Apollo).
 - LLM auto-suggesting new companies to add (with owner approval).
-- Follow-up automation and analytics / A-B testing of CV variants.
+- Follow-up automation (follow-ups exist, but the owner drafts and sends each one) and analytics / A-B testing of CV variants.
 
 Design v1 so these slot in later: keep `website_url`, `contact_email`, and `Contact` records source-agnostic, and gate any external-data provider behind a flag.
-
-**Built after v1 (was deferred here):** automated LinkedIn company research - headcount, what the employees do, who to contact, activity signal, and listed openings - under the constraints in section 9.
-
-**Also built after v1:** company discovery from technopark directories (`/discovery`). The owner imports a directory (built-in readers for ODTÜ Teknokent, Bilkent Cyberpark, Hacettepe Teknokent, OSTİM Teknopark and Ankara Üniversitesi Teknokent, or any directory page they add), the app screens each candidate's homepage (what it does, fit with `target_roles`, preference conflicts with on-site evidence), and only owner-approved candidates become Companies, tagged with city/technopark. Websites come only from the directory itself - name -> URL guessing stays deferred. Every step is owner-triggered; rejected candidates are never suggested again.
 
 ---
 
@@ -181,4 +192,4 @@ Design v1 so these slot in later: keep `website_url`, `contact_email`, and `Cont
 - **Web fetch:** HTTP client + a readability/main-text extractor; cap extracted text length.
 - **Email:** Gmail API via OAuth2 (google-api-python-client) from the backend.
 - **Review UI:** a minimal local web app.
-- **LLM:** provider-agnostic layer; Gemini (Google AI Studio) default, Claude (Anthropic API) as a config-flip alternative.
+- **LLM:** provider-agnostic layer; Gemini (Google AI Studio) and Claude (Anthropic API), selected by `LLM_PROVIDER`.

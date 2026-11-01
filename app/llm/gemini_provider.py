@@ -5,6 +5,11 @@ import time
 from app.llm.base import LLMProvider, LLMResponse
 
 MAX_RETRIES = 4
+# The Interactions API has no temperature setting (its generation_config takes
+# max_output_tokens, seed, thinking_level, ...) - an unknown key was silently
+# dropped by the SDK. Callers' temperature=0.0 means "same input, same answer"
+# (extraction, checks, triage), which a fixed seed is the closest match for.
+DETERMINISTIC_SEED = 0
 RETRY_BASE_DELAY_SECONDS = 3.0
 
 
@@ -31,17 +36,26 @@ class GeminiProvider(LLMProvider):
         system: str | None = None,
         temperature: float = 0.2,
         max_output_tokens: int = 2048,
+        json_schema: dict | None = None,
     ) -> LLMResponse:
+        structured = {}
+        if json_schema is not None:
+            # Interactions API structured output: JSON text matching the schema.
+            structured = {
+                "response_mime_type": "application/json",
+                "response_format": {"type": "text", "mime_type": "application/json", "schema": json_schema},
+            }
+        generation_config = {"max_output_tokens": max_output_tokens}
+        if temperature == 0:
+            generation_config["seed"] = DETERMINISTIC_SEED
         for attempt in range(MAX_RETRIES):
             try:
                 interaction = self._client.interactions.create(
                     model=self._model,
                     input=prompt,
                     system_instruction=system,
-                    generation_config={
-                        "temperature": temperature,
-                        "max_output_tokens": max_output_tokens,
-                    },
+                    generation_config=generation_config,
+                    **structured,
                 )
                 return LLMResponse(
                     text=interaction.output_text,

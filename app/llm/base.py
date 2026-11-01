@@ -23,7 +23,13 @@ class LLMProvider(ABC):
         system: str | None = None,
         temperature: float = 0.2,
         max_output_tokens: int = 2048,
+        json_schema: dict | None = None,
     ) -> LLMResponse:
         """Send one prompt, return one response. No streaming needed for this app's use cases
-        (per-item extraction, preference checks, cover-letter drafts)."""
+        (per-item extraction, preference checks, cover-letter drafts).
+
+        `json_schema` (a plain JSON Schema, e.g. `Model.model_json_schema()`)
+        asks the provider to constrain the answer to that shape with its native
+        structured-output mode. Callers still parse and validate the text - the
+        schema makes a malformed answer rarer, it doesn't replace the check."""
         raise NotImplementedError

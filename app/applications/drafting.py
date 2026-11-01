@@ -7,6 +7,7 @@ from urllib.parse import urldefrag
 from pydantic import BaseModel, Field, ValidationError, field_validator
 from sqlalchemy.orm import Session
 
+from app.applications.draft_review import review_draft
 from app.applications.evidence import (
     EvidenceSelection,
     evidence_prompt_section,
@@ -16,10 +17,20 @@ from app.applications.evidence import (
 )
 from app.applications.review import ensure_not_sent
 from app.companies.workflow import has_usable_research
+from app.config import get_settings
 from app.llm.base import LLMProvider
 from app.llm.json_utils import parse_json_object
 from app.llm.untrusted import UNTRUSTED_RULE, wrap_untrusted
-from app.models import CV, Application, ApplicationState, Company, Profile, ProfileItem
+from app.models import (
+    CV,
+    EMAIL_LANGUAGES,
+    Application,
+    ApplicationState,
+    Company,
+    Profile,
+    ProfileItem,
+    get_email_language,
+)
 
 DRAFT_SYSTEM_PROMPT = """You are writing a job application email on behalf of the owner
 (a new graduate), using their profile, the most relevant background records, and the
@@ -254,12 +265,21 @@ def draft_application(
         prompt += f"\n\nOWNER'S REASON FOR APPLYING (open/speculative application):\n{application_reason.strip()}"
     if company.why_interested.strip():
         prompt += f"\n\nOWNER'S NOTES ON WHY THIS COMPANY:\n{company.why_interested.strip()}"
+    email_language = get_email_language(db)
+    if email_language:
+        prompt += f"\n\nOWNER'S PREFERRED EMAIL LANGUAGE:\n{EMAIL_LANGUAGES[email_language]}"
     if profile.cover_letter_template.strip():
         prompt += f"\n\nOWNER'S COVER LETTER TEMPLATE (follow its structure/tone closely):\n{profile.cover_letter_template.strip()}"
     if feedback:
         prompt += f"\n\nOWNER FEEDBACK ON PREVIOUS DRAFT (revise accordingly):\n{feedback}"
 
-    response = llm.generate(prompt=prompt, system=DRAFT_SYSTEM_PROMPT, temperature=0.3, max_output_tokens=4096)
+    response = llm.generate(
+        prompt=prompt,
+        system=DRAFT_SYSTEM_PROMPT,
+        temperature=0.3,
+        max_output_tokens=4096,
+        json_schema=DraftResult.model_json_schema(),
+    )
     data = parse_json_object(response.text, fallback=DRAFT_FALLBACK)
     if "parse_error" in data:
         raise ValueError(
@@ -290,13 +310,37 @@ def _draft_notes(result: dict, selection: EvidenceSelection) -> dict:
     }
 
 
+def _review_notes(
+    db: Session, review_llm: LLMProvider | None, company: Company, result: dict, selection: EvidenceSelection
+) -> dict:
+    """The reviewer pass (app/applications/draft_review.py) as a notes entry,
+    or nothing when it is off or no reviewer was supplied."""
+    if review_llm is None or not get_settings().draft_review_enabled:
+        return {}
+    profile = db.query(Profile).first()
+    email_language = get_email_language(db)
+    review = review_draft(
+        review_llm,
+        company=company,
+        subject=result.get("subject", ""),
+        body=result.get("cover_letter_body", ""),
+        evidence_items=selection.items,
+        template=profile.cover_letter_template if profile else "",
+        language=EMAIL_LANGUAGES.get(email_language, ""),
+    )
+    return {"review": review}
+
+
 def create_draft_application(
     db: Session,
     llm: LLMProvider,
     company: Company,
     target_position: str = "",
     application_reason: str = "",
+    review_llm: LLMProvider | None = None,
 ) -> Application:
+    """`review_llm` (the cheap reading model) runs the independent reviewer
+    pass on the new draft; None skips it."""
     _require_draft_inputs(db, company)  # fail before spending a call on evidence selection
     selection = select_evidence(db, llm, company, target_position, application_reason)
     result = draft_application(
@@ -318,7 +362,7 @@ def create_draft_application(
         cover_letter_body=result.get("cover_letter_body", ""),
         sources=result["sources"],
         evidence=evidence_records(selection.items, selection.why, result["evidence_item_ids"]),
-        revision_history=[_draft_notes(result, selection)],
+        revision_history=[{**_draft_notes(result, selection), **_review_notes(db, review_llm, company, result, selection)}],
         state=ApplicationState.PENDING_APPROVAL,
     )
     db.add(application)
@@ -353,7 +397,13 @@ def _evidence_for_regeneration(db: Session, llm: LLMProvider, application: Appli
     )
 
 
-def regenerate_draft(db: Session, llm: LLMProvider, application: Application, feedback: str) -> Application:
+def regenerate_draft(
+    db: Session,
+    llm: LLMProvider,
+    application: Application,
+    feedback: str,
+    review_llm: LLMProvider | None = None,
+) -> Application:
     ensure_not_sent(application)
     _require_draft_inputs(db, application.company)
     selection = _evidence_for_regeneration(db, llm, application)
@@ -376,7 +426,13 @@ def regenerate_draft(db: Session, llm: LLMProvider, application: Application, fe
     # index 0 in place instead of just appending, or the AI notes would keep
     # showing the reasoning for a draft that's no longer the one on screen.
     history = list(application.revision_history) or [{"reasoning": ""}]
-    history[0] = {**history[0], **_draft_notes(result, selection)}
+    # The old review described the old draft - drop it, then review the new one.
+    notes = {key: value for key, value in history[0].items() if key != "review"}
+    history[0] = {
+        **notes,
+        **_draft_notes(result, selection),
+        **_review_notes(db, review_llm, application.company, result, selection),
+    }
     history.append({"feedback": feedback, "previous_body": application.cover_letter_body})
     application.revision_history = history
 

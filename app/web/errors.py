@@ -34,21 +34,21 @@ def classify_llm_error(exc: Exception) -> str:
     return "unknown"
 
 
+def render_error(request: Request, category: str, detail: str, status_code: int):
+    """The shared error page - also used by middleware, which runs outside the
+    exception handlers registered below."""
+    lang = get_lang(request)
+    return templates.TemplateResponse(
+        request,
+        "error.html",
+        {"lang": lang, "t": translator(lang), "category": category, "detail": detail},
+        status_code=status_code,
+    )
+
+
 def register_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(Exception)
     async def handle_unexpected_error(request: Request, exc: Exception):
         logger.exception("Unhandled error on %s %s", request.method, request.url.path)
-        lang = get_lang(request)
-        t = translator(lang)
         category = "not_found" if isinstance(exc, NotFoundError) else classify_llm_error(exc)
-        return templates.TemplateResponse(
-            request,
-            "error.html",
-            {
-                "lang": lang,
-                "t": t,
-                "category": category,
-                "detail": str(exc),
-            },
-            status_code=404 if category == "not_found" else 500,
-        )
+        return render_error(request, category, str(exc), 404 if category == "not_found" else 500)

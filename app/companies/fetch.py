@@ -13,6 +13,8 @@ import httpx
 from bs4 import BeautifulSoup
 from readability import Document as ReadabilityDocument
 
+from app.companies.sanitize import SanitizeReport, sanitize_html, sanitize_text
+
 # Ordinary browser headers, not a bot UA: several perfectly public company
 # sites (WAF defaults) 403 anything that self-identifies as a tool. This is
 # the owner's own outreach assistant fetching public pages they're entitled
@@ -109,7 +111,16 @@ def _trim_keep_head_and_tail(text: str, max_chars: int) -> str:
     return text[:head_len] + "\n...\n" + text[-tail_len:]
 
 
-def _extract_main_text(html: str) -> str:
+def _extract_main_text(html: str, report: SanitizeReport | None = None, url: str | None = None) -> str:
+    """Visible main text of a page. Hidden content and invisible characters are
+    stripped first (app/companies/sanitize.py); pass `report` to keep what was
+    found, e.g. for the company page's warning."""
+    report = report if report is not None else SanitizeReport()
+    html = sanitize_html(html, report, url=url)
+    return sanitize_text(_readable_text(html), report, url=url)
+
+
+def _readable_text(html: str) -> str:
     doc = ReadabilityDocument(html)
     soup = BeautifulSoup(doc.summary(), "html.parser")
     text = soup.get_text("\n", strip=True)
@@ -260,7 +271,8 @@ def find_linkedin_url(website_url: str) -> str | None:
 def fetch_company_research(website_url: str, careers_url: str | None = None) -> dict:
     """Returns {"pages": [{"url", "text"}], "detected_careers_url": str | None,
     "careers_page_thin": bool, "detected_linkedin_url": str | None,
-    "content_chars": int}.
+    "content_chars": int, "content_safety": dict}. `content_safety` is the
+    hidden-content report across every page kept (SanitizeReport.to_dict).
 
     Always fetches the homepage. Then, on top of the (optionally owner-provided)
     careers page, also looks for an About and a Contact page - About usually has
@@ -275,6 +287,7 @@ def fetch_company_research(website_url: str, careers_url: str | None = None) -> 
     # what goes to the LLM is always the extracted text in `pages`.
     fetched_html: list[tuple[str, str]] = []
     seen_urls = {urldefrag(website_url)[0].rstrip("/")}
+    safety = SanitizeReport()
 
     with httpx.Client(timeout=15, follow_redirects=True, headers=BROWSER_HEADERS) as client:
 
@@ -291,16 +304,16 @@ def fetch_company_research(website_url: str, careers_url: str | None = None) -> 
                 resp.raise_for_status()
             except httpx.HTTPError:
                 return None
-            pages.append(
-                {"url": url, "text": _trim_keep_head_and_tail(_extract_main_text(resp.text), MAX_CHARS_PER_PAGE)}
-            )
+            text = _extract_main_text(resp.text, safety, url=url)
+            pages.append({"url": url, "text": _trim_keep_head_and_tail(text, MAX_CHARS_PER_PAGE)})
             fetched_html.append((url, resp.text))
             return resp.text
 
         home_resp = client.get(website_url)
         home_resp.raise_for_status()
         home_html = home_resp.text
-        home_text = _extract_main_text(home_html)
+        home_safety = SanitizeReport()
+        home_text = _extract_main_text(home_html, home_safety, url=website_url)
 
         # A homepage that is only a JavaScript language-splash extracts to
         # nothing. Follow where it would have sent a browser, and research that
@@ -312,14 +325,17 @@ def fetch_company_research(website_url: str, careers_url: str | None = None) -> 
                     resp.raise_for_status()
                 except httpx.HTTPError:
                     continue
-                candidate_text = _extract_main_text(resp.text)
+                candidate_safety = SanitizeReport()
+                candidate_text = _extract_main_text(resp.text, candidate_safety, url=candidate)
                 if len(candidate_text) > len(home_text):
                     website_url, home_html, home_text = candidate, resp.text, candidate_text
+                    home_safety = candidate_safety
                     seen_urls.add(urldefrag(candidate)[0].rstrip("/"))
                     break
 
         pages.append({"url": website_url, "text": _trim_keep_head_and_tail(home_text, MAX_CHARS_PER_PAGE)})
         fetched_html.append((website_url, home_html))
+        safety.merge(home_safety)
 
         detected_careers = careers_url or _find_careers_link(home_html, website_url)
 
@@ -358,4 +374,5 @@ def fetch_company_research(website_url: str, careers_url: str | None = None) -> 
         # How much text the LLM will actually get. Zero happens (JS-only sites,
         # shells behind a WAF) and must not be mistaken for "researched".
         "content_chars": sum(len(p["text"]) for p in pages),
+        "content_safety": safety.to_dict(),
     }

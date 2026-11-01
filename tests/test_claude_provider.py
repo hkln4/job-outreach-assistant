@@ -54,3 +54,35 @@ def test_refusal_is_a_readable_error():
     provider, _, _ = _provider("claude-sonnet-5-5", stop_reason="refusal")
     with pytest.raises(ValueError, match="declined"):
         provider.generate("hi")
+
+
+SCHEMA = {
+    "type": "object",
+    "properties": {"name": {"type": "string", "maxLength": 5}, "tags": {"type": "array", "items": {"type": "string"}}},
+    "required": ["name"],
+}
+
+
+def test_no_schema_sends_no_format():
+    provider, plain, _ = _provider("claude-haiku-4-5")
+    provider.generate("hi")
+    assert "output_config" not in plain.calls[0]
+
+
+def test_schema_becomes_strict_output_format_on_legacy_models():
+    provider, plain, _ = _provider("claude-haiku-4-5")
+    provider.generate("hi", json_schema=SCHEMA)
+    fmt = plain.calls[0]["output_config"]["format"]
+    assert fmt["type"] == "json_schema"
+    assert fmt["schema"]["additionalProperties"] is False  # strict subset the API requires
+    assert "maxLength" not in fmt["schema"]["properties"]["name"]  # unsupported keyword moved out
+    assert plain.calls[0]["temperature"] == 0.2
+
+
+def test_schema_sits_next_to_effort_on_newer_models():
+    provider, _, beta = _provider("claude-sonnet-5-5")
+    provider.generate("hi", json_schema=SCHEMA)
+    (call,) = beta.calls
+    assert call["output_config"]["effort"] == "medium"
+    assert call["output_config"]["format"]["type"] == "json_schema"
+    assert call["fallbacks"] == "default"

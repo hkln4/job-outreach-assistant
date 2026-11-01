@@ -2,7 +2,7 @@ from app.profile_builder.extraction import safe_extract_item
 
 
 class _FailingProvider:
-    def generate(self, prompt, *, system=None, temperature=0.2, max_output_tokens=2048):
+    def generate(self, prompt, *, system=None, temperature=0.2, max_output_tokens=2048, json_schema=None):
         raise RuntimeError("Your credit balance is too low to access the Anthropic API.")
 
 

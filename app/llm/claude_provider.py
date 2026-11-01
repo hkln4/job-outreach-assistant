@@ -1,6 +1,6 @@
 """
-Claude provider (section 8): implemented but inactive until ANTHROPIC_API_KEY is set
-and LLM_PROVIDER=claude. No other code changes needed to switch over.
+Claude provider (section 8), selected with LLM_PROVIDER=claude. Reading tasks use
+ANTHROPIC_MODEL; letters use ANTHROPIC_DRAFT_MODEL (see app/llm/factory.py).
 """
 from app.llm.base import LLMProvider, LLMResponse
 
@@ -22,10 +22,11 @@ class ClaudeProvider(LLMProvider):
         if not api_key:
             raise ValueError(
                 "ANTHROPIC_API_KEY is not set - required when LLM_PROVIDER=claude. "
-                "Leave LLM_PROVIDER=gemini until this is funded."
+                "Set it in .env, or switch to LLM_PROVIDER=gemini."
             )
         import anthropic
 
+        self._transform_schema = anthropic.transform_schema
         self._client = anthropic.Anthropic(api_key=api_key)
         self._model = model
 
@@ -36,20 +37,30 @@ class ClaudeProvider(LLMProvider):
         system: str | None = None,
         temperature: float = 0.2,
         max_output_tokens: int = 2048,
+        json_schema: dict | None = None,
     ) -> LLMResponse:
         request = {
             "model": self._model,
             "system": system or "",
             "messages": [{"role": "user", "content": prompt}],
         }
+        output_config = {}
+        if json_schema is not None:
+            # Structured outputs: the answer is constrained to the schema. The
+            # SDK helper rewrites a Pydantic schema into the strict subset the
+            # API accepts (additionalProperties: false on every object,
+            # unsupported keywords moved into descriptions).
+            output_config["format"] = {"type": "json_schema", "schema": self._transform_schema(json_schema)}
         if self._model.startswith(_LEGACY_MODEL_PREFIXES):
+            if output_config:
+                request["output_config"] = output_config
             message = self._client.messages.create(
                 **request, max_tokens=max_output_tokens, temperature=temperature
             )
         else:
             request.update(
                 max_tokens=max_output_tokens + THINKING_HEADROOM_TOKENS,
-                output_config={"effort": "medium"},
+                output_config={"effort": "medium", **output_config},
             )
             if self._model.startswith(_FALLBACK_MODELS):
                 message = self._client.beta.messages.create(

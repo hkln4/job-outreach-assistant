@@ -10,6 +10,7 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
 from app.applications.draft_checks import draft_warnings
+from app.applications.draft_review import review_feedback
 from app.applications.drafting import regenerate_draft
 from app.applications.follow_ups import draft_follow_up, send_follow_up
 from app.applications.reply_check import auto_check_if_due, check_application_reply
@@ -37,7 +38,7 @@ from app.models import (
     FollowUp,
     FollowUpState,
 )
-from app.web.deps import get_draft_llm
+from app.web.deps import get_draft_llm, get_review_llm
 from app.web.errors import NotFoundError
 from app.web.render import render
 
@@ -111,6 +112,10 @@ def application_detail(
             db, application.company_id, recipient, exclude_application_id=application.id
         )
 
+    draft_review = None
+    if application.state == ApplicationState.PENDING_APPROVAL:
+        draft_review = (application.revision_history or [{}])[0].get("review")
+
     follow_ups = (
         db.query(FollowUp)
         .filter(FollowUp.application_id == application.id)
@@ -131,6 +136,8 @@ def application_detail(
             "wait_seconds": wait,
             "blocked": bool(blocked),
             "draft_warnings": draft_warnings(application),
+            "draft_review": draft_review,
+            "review_feedback": review_feedback(draft_review),
             "follow_ups": follow_ups,
             "pending_follow_up": next(
                 (f for f in follow_ups if f.state == FollowUpState.PENDING_APPROVAL), None
@@ -206,10 +213,11 @@ def reject(
     feedback: str = Form(...),
     db: Session = Depends(get_db),
     llm: LLMProvider = Depends(get_draft_llm),
+    review_llm: LLMProvider | None = Depends(get_review_llm),
 ):
     application = _application_or_404(db, application_id)
     try:
-        regenerate_draft(db, llm, application, feedback.strip())
+        regenerate_draft(db, llm, application, feedback.strip(), review_llm=review_llm)
     except AlreadySentError:
         return _blocked_redirect(application_id)
     return RedirectResponse(url=f"/applications/{application_id}", status_code=303)

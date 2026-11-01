@@ -78,6 +78,33 @@
 
   <div class="section card">
     <h2>{{ t("company_detail.research_title") }}</h2>
+    {% set safety = company.research.content_safety %}
+    {% if safety and safety.suspicious %}
+      <div class="warning">
+        <strong>⚠ {{ t("company_detail.safety.title") }}</strong>
+        <p>{{ t("company_detail.safety.body") }}</p>
+        <ul>
+          {% for line in safety.instruction_lines %}
+            <li>{{ t("company_detail.safety.instruction_" ~ line.where) }} <q>{{ line.text }}</q>{% if line.url %} — <a href="{{ line.url }}" target="_blank" rel="noopener">{{ line.url }}</a>{% endif %}</li>
+          {% endfor %}
+          {% for message in safety.tag_messages %}
+            <li>{{ t("company_detail.safety.tag_message") }} <q>{{ message }}</q></li>
+          {% endfor %}
+          {% if safety.counts.bidi_override %}<li>{{ t("company_detail.safety.bidi_override") }} ({{ safety.counts.bidi_override }})</li>{% endif %}
+          {% if safety.counts.zero_width_in_word %}<li>{{ t("company_detail.safety.zero_width_in_word") }} ({{ safety.counts.zero_width_in_word }})</li>{% endif %}
+        </ul>
+        {% if safety.hidden_excerpts %}
+          <details>
+            <summary>{{ t("company_detail.safety.hidden_summary") }} ({{ safety.hidden_excerpts | length }})</summary>
+            <ul>
+              {% for block in safety.hidden_excerpts %}
+                <li class="muted">{{ block.text }}</li>
+              {% endfor %}
+            </ul>
+          </details>
+        {% endif %}
+      </div>
+    {% endif %}
     {% if company.research.pages and not research_usable and not company.research.error %}
       <p class="hint">⚠ {{ t("company_detail.research_empty") }}
         {% if company.website_url %}<a href="{{ company.website_url }}" target="_blank" rel="noopener">{{ company.website_url }}</a>{% endif %}
