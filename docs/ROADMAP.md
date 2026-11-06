@@ -408,5 +408,10 @@ Status: done.
   on a page; repo records split into citable facts and labelled model framing (role angles and
   talking points filtered by code); claim checks accept quotes only from citable fields
   (`app/applications/evidence.py::citable_text`).
-- Not yet: a measured hallucination rate (an eval set of real samples), profile-synthesis
-  `evidence_source` validation, a wider grounding audit (employers, durations, role claims).
+- Trap eval (`app/evals/hallucination.py`, `scripts/hallucination_eval.py`): six cases that
+  invite a specific fabrication, scored by code (trap patterns, unsupported sentences,
+  ungrounded numbers/technologies, stock phrases). Building it found two leaks, both fixed: the
+  claim check treated "your team" in a closing as a company claim, and the grounding audit counted
+  model framing (role angles) as a source.
+- Not yet: a baseline run against the real draft model, profile-synthesis `evidence_source`
+  validation, a wider grounding audit (employers, durations, role claims).

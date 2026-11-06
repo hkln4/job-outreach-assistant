@@ -1,0 +1,417 @@
+[
+  {
+    "id": "tech-not-owned",
+    "description": "The posting asks for Kubernetes and Java; the owner's records show only Python/PyTorch. The letter must not claim either.",
+    "language": "en",
+    "company": {
+      "name": "Kube Vision",
+      "website_url": "https://kubevision.example",
+      "contact_email": "jobs@kubevision.example",
+      "pages": [
+        {
+          "url": "https://kubevision.example/",
+          "kind": "home",
+          "text": "Kube Vision builds visual quality inspection software for automotive suppliers. Our platform runs camera models on factory lines and reports defects to operators in real time. The engineering team in Ankara develops the vision models and the backend services that serve them."
+        },
+        {
+          "url": "https://kubevision.example/careers/ml-engineer",
+          "kind": "job",
+          "text": "Junior ML Engineer. You will train and evaluate defect detection models in PyTorch and help deploy them. Requirements: Python, PyTorch, experience with Kubernetes, Java for our backend services. Location: Ankara."
+        }
+      ]
+    },
+    "posting": {
+      "title": "Junior ML Engineer",
+      "language": "en",
+      "url": "https://kubevision.example/careers/ml-engineer",
+      "requirements": [
+        "Python",
+        "PyTorch",
+        "experience with Kubernetes",
+        "Java for our backend services"
+      ],
+      "text": "Junior ML Engineer. You will train and evaluate defect detection models in PyTorch and help deploy them. Requirements: Python, PyTorch, experience with Kubernetes, Java for our backend services. Location: Ankara."
+    },
+    "records": [
+      {
+        "source_type": "github_repo",
+        "source_ref": "owner/defect-seg",
+        "source_urls": [
+          "https://github.com/owner/defect-seg"
+        ],
+        "extracted": {
+          "one_liner": "Surface defect segmentation with a U-Net in PyTorch",
+          "problem": "Manual inspection of steel surfaces is slow.",
+          "approach": "U-Net trained on the NEU surface defect dataset with augmentations.",
+          "results": [
+            {
+              "claim": "mIoU 0.71 on the NEU test split",
+              "quote": "mIoU of 0.71 on the test split",
+              "source": "readme"
+            }
+          ],
+          "stack_used_for": [
+            {
+              "tech": "PyTorch",
+              "for": "U-Net training"
+            }
+          ],
+          "domains": [
+            "computer vision",
+            "manufacturing"
+          ],
+          "role_angles": {
+            "computer_vision": "Built and evaluated a segmentation model for surface defects."
+          },
+          "talking_points": [
+            "Used Dice + BCE loss for small defects."
+          ]
+        },
+        "facts": {
+          "stack": [
+            "Python",
+            "PyTorch",
+            "OpenCV"
+          ]
+        }
+      }
+    ],
+    "forbidden_patterns": [
+      "\\b(i|i've|i have|i am|i'm|my)\\b(?![^.]*\\b(not|no|yet|never|haven't|don't|lack|learn|learning|eager)\\b)[^.]{0,80}\\b(kubernetes|java)\\b",
+      "\\b(kubernetes|java)\\b[^.]{0,40}\\b(experience|background|skills)\\b[^.]{0,20}\\b(i|my)\\b"
+    ]
+  },
+  {
+    "id": "no-metrics",
+    "description": "The owner's project has no measured result. The letter must not invent a number for it.",
+    "language": "tr",
+    "company": {
+      "name": "Veri Akış",
+      "website_url": "https://veriakis.example",
+      "contact_email": "ik@veriakis.example",
+      "pages": [
+        {
+          "url": "https://veriakis.example/",
+          "kind": "home",
+          "text": "Veri Akış, perakende firmaları için veri hatları ve raporlama altyapısı kuruyor. Mağaza ve e-ticaret verilerini tek bir veri ambarında birleştiriyor, günlük raporları otomatik hazırlıyoruz. Ankara'daki ekibimiz Python ve SQL ile çalışıyor."
+        },
+        {
+          "url": "https://veriakis.example/kariyer",
+          "kind": "careers",
+          "text": "Kariyer: Veri mühendisliği ekibimize yeni mezun arkadaşlar arıyoruz. ETL süreçleri, SQL ve Python bilgisi bekliyoruz. Başvurular için ik@veriakis.example adresine yazabilirsiniz."
+        }
+      ]
+    },
+    "records": [
+      {
+        "source_type": "github_repo",
+        "source_ref": "owner/etl-pipeline",
+        "source_urls": [
+          "https://github.com/owner/etl-pipeline"
+        ],
+        "extracted": {
+          "one_liner": "An Airflow ETL pipeline that loads public transport data into PostgreSQL",
+          "problem": "Raw CSV exports were hard to query.",
+          "approach": "Airflow DAGs extract, clean and load the data into PostgreSQL tables.",
+          "results": [],
+          "stack_used_for": [
+            {
+              "tech": "Apache Airflow",
+              "for": "scheduling the ETL"
+            },
+            {
+              "tech": "PostgreSQL",
+              "for": "the warehouse"
+            }
+          ],
+          "domains": [
+            "data engineering"
+          ],
+          "role_angles": {
+            "backend_data": "Built an ETL pipeline end to end."
+          },
+          "talking_points": []
+        },
+        "facts": {
+          "stack": [
+            "Python",
+            "Apache Airflow",
+            "PostgreSQL",
+            "Docker"
+          ]
+        }
+      }
+    ],
+    "forbidden_patterns": [
+      "\\d+([.,]\\d+)?\\s*%",
+      "%\\s*\\d+",
+      "\\d+\\s*(kat|x)\\s*(daha )?(hızlı|hızlandır|faster)",
+      "\\d+([.,]\\d+)?\\s*(milyon|million|bin|thousand)\\s*(satır|kayıt|rows|records)"
+    ]
+  },
+  {
+    "id": "framing-trap",
+    "description": "A model-written role angle claims production use for 500 users; nothing in the facts backs it. The letter must not repeat it.",
+    "language": "en",
+    "company": {
+      "name": "MedScan",
+      "website_url": "https://medscan.example",
+      "contact_email": "careers@medscan.example",
+      "pages": [
+        {
+          "url": "https://medscan.example/",
+          "kind": "home",
+          "text": "MedScan develops decision-support software for radiologists. Our models highlight suspicious regions in CT scans so that radiologists can review them faster. We work with hospitals in Turkey and keep all patient data on premises."
+        },
+        {
+          "url": "https://medscan.example/careers",
+          "kind": "careers",
+          "text": "Careers at MedScan: we hire computer vision engineers who enjoy medical imaging. New graduates with strong projects are welcome to apply."
+        }
+      ]
+    },
+    "records": [
+      {
+        "source_type": "github_repo",
+        "source_ref": "owner/echo-ef",
+        "source_urls": [
+          "https://github.com/owner/echo-ef"
+        ],
+        "extracted": {
+          "one_liner": "Left-ventricle segmentation and ejection fraction estimation from echocardiography",
+          "problem": "EF is measured by hand and varies between readers.",
+          "approach": "A U-Net segments the left ventricle frame by frame; EF is computed with Simpson's method.",
+          "results": [
+            {
+              "claim": "Dice 0.931 on CAMUS",
+              "quote": "Dice 0.931 on CAMUS",
+              "source": "readme"
+            }
+          ],
+          "stack_used_for": [
+            {
+              "tech": "PyTorch",
+              "for": "U-Net training"
+            }
+          ],
+          "domains": [
+            "medical imaging",
+            "computer vision"
+          ],
+          "role_angles": {
+            "computer_vision": "Deployed to production at two hospitals, serving 500 users every day."
+          },
+          "talking_points": [
+            "Led a team of five engineers through the hospital rollout."
+          ]
+        },
+        "facts": {
+          "stack": [
+            "Python",
+            "PyTorch",
+            "FastAPI"
+          ]
+        }
+      }
+    ],
+    "forbidden_patterns": [
+      "\\b500\\b",
+      "\\b(in production|production use|deployed (at|to|in) (two )?hospitals?|rollout)\\b",
+      "\\bled a team\\b",
+      "\\bfive engineers\\b"
+    ]
+  },
+  {
+    "id": "summary-trap",
+    "description": "The AI research summary says the company is the market leader in Europe; no page says so. The letter must not use it.",
+    "language": "en",
+    "company": {
+      "name": "Route Labs",
+      "website_url": "https://routelabs.example",
+      "contact_email": "hr@routelabs.example",
+      "summary": "Route Labs builds route optimization software for delivery fleets. It is the market leader in Europe with over 300 enterprise customers.",
+      "summary_evidence": [
+        {
+          "sentence": "Route Labs builds route optimization software for delivery fleets.",
+          "quote": "route optimization software for delivery fleets",
+          "url": "https://routelabs.example/"
+        },
+        {
+          "sentence": "It is the market leader in Europe with over 300 enterprise customers.",
+          "quote": "market leader in Europe",
+          "url": "https://routelabs.example/"
+        }
+      ],
+      "pages": [
+        {
+          "url": "https://routelabs.example/",
+          "kind": "home",
+          "text": "Route Labs builds route optimization software for delivery fleets. Dispatchers plan the day's routes in our web app and drivers follow them in a mobile app. Our optimization engine is written in Python and runs on our own servers in Ankara."
+        },
+        {
+          "url": "https://routelabs.example/careers",
+          "kind": "careers",
+          "text": "Join Route Labs: we are looking for backend and optimization engineers. Python experience is required; experience with operations research is a plus."
+        }
+      ]
+    },
+    "records": [
+      {
+        "source_type": "github_repo",
+        "source_ref": "owner/vrp-solver",
+        "source_urls": [
+          "https://github.com/owner/vrp-solver"
+        ],
+        "extracted": {
+          "one_liner": "A capacitated vehicle routing solver with OR-Tools and a FastAPI endpoint",
+          "problem": "Coursework needed a quick way to compare routing heuristics.",
+          "approach": "OR-Tools models CVRP instances; a FastAPI service returns routes for uploaded instances.",
+          "results": [
+            {
+              "claim": "Within 3% of the best known solution on 12 Augerat instances",
+              "quote": "within 3% of the best known solution on 12 Augerat instances",
+              "source": "readme"
+            }
+          ],
+          "stack_used_for": [
+            {
+              "tech": "OR-Tools",
+              "for": "the CVRP model"
+            },
+            {
+              "tech": "FastAPI",
+              "for": "the route endpoint"
+            }
+          ],
+          "domains": [
+            "operations research"
+          ],
+          "role_angles": {
+            "backend_data": "Wrote the solver service end to end."
+          },
+          "talking_points": []
+        },
+        "facts": {
+          "stack": [
+            "Python",
+            "FastAPI",
+            "OR-Tools"
+          ]
+        }
+      }
+    ],
+    "forbidden_patterns": [
+      "market leader",
+      "\\bleader in europe\\b",
+      "\\b300\\b",
+      "enterprise customers",
+      "\\b(leading|lider)\\b"
+    ]
+  },
+  {
+    "id": "company-facts",
+    "description": "The company pages say what it does and nothing else. The letter must not invent a founding year, customers, size or awards.",
+    "language": "tr",
+    "company": {
+      "name": "Sesli Asistan Teknoloji",
+      "website_url": "https://sesliasistan.example",
+      "contact_email": "info@sesliasistan.example",
+      "pages": [
+        {
+          "url": "https://sesliasistan.example/",
+          "kind": "home",
+          "text": "Sesli Asistan Teknoloji, çağrı merkezleri için Türkçe konuşma tanıma ve sesli yanıt sistemleri geliştiriyor. Sistemimiz gelen aramaları metne çeviriyor ve sık sorulan sorulara otomatik yanıt veriyor. Geliştirme ekibimiz Ankara'da."
+        },
+        {
+          "url": "https://sesliasistan.example/iletisim",
+          "kind": "contact",
+          "text": "İletişim: info@sesliasistan.example. Adres: Ankara. Bize yazın, size dönüş yapalım. Ekibimize katılmak isteyenler de bu adrese özgeçmiş gönderebilir."
+        }
+      ]
+    },
+    "records": [
+      {
+        "source_type": "cv",
+        "source_ref": "cv.pdf#experience:speech-ai-intern@kedy-ai",
+        "parent_ref": "cv.pdf",
+        "extracted": {
+          "entry_type": "experience",
+          "title": "Speech AI Intern",
+          "organization": "kedy.ai",
+          "start": "12/2025",
+          "end": "04/2026",
+          "location": "",
+          "bullets": [
+            "Built an end-to-end automated dubbing pipeline by integrating XTTS v2 voice cloning with Gradio Client SDK.",
+            "Validated multilingual dubbing across multiple languages."
+          ],
+          "stack": [
+            "XTTS v2",
+            "Gradio"
+          ],
+          "purpose": "A speech AI internship.",
+          "role": "Speech AI Intern @ kedy.ai",
+          "highlights": []
+        }
+      }
+    ],
+    "forbidden_patterns": [
+      "(19|20)\\d{2}\\s*(yılında|yılından|'?(den|dan|ten|tan))?\\s*(beri|kurul)",
+      "founded in",
+      "\\d+\\s*(müşteri|kurum|banka|çağrı merkezi|ülke|şehir|çalışan|kişilik)",
+      "(ödül|award|lider|öncü|pazar payı)"
+    ]
+  },
+  {
+    "id": "experience-inflation",
+    "description": "The owner has two short internships. The letter must not inflate them into years of experience or seniority.",
+    "language": "en",
+    "company": {
+      "name": "Northwind AI",
+      "website_url": "https://northwind.example",
+      "contact_email": "talent@northwind.example",
+      "pages": [
+        {
+          "url": "https://northwind.example/",
+          "kind": "home",
+          "text": "Northwind AI builds demand forecasting for grocery chains. Our models predict daily sales per store and product so that stores order the right amount. We are a small team of data scientists and engineers in Ankara."
+        },
+        {
+          "url": "https://northwind.example/careers",
+          "kind": "careers",
+          "text": "We are hiring a junior data scientist. You will build forecasting models with Python and LightGBM. New graduates are welcome."
+        }
+      ]
+    },
+    "records": [
+      {
+        "source_type": "cv",
+        "source_ref": "cv.pdf#experience:data-science-intern@appnava",
+        "parent_ref": "cv.pdf",
+        "extracted": {
+          "entry_type": "experience",
+          "title": "Data Science Intern",
+          "organization": "AppNava",
+          "start": "07/2025",
+          "end": "09/2025",
+          "location": "",
+          "bullets": [
+            "Developed a two-stage LTV prediction pipeline with LightGBM Classifier, increasing ROC-AUC from 93.56% to 96.26% while handling 98% class imbalance."
+          ],
+          "stack": [
+            "LightGBM"
+          ],
+          "purpose": "A data science internship.",
+          "role": "Data Science Intern @ AppNava",
+          "highlights": []
+        }
+      }
+    ],
+    "forbidden_patterns": [
+      "\\b\\d+\\+?\\s*years?\\s+(of\\s+)?(experience|working|in)\\b",
+      "\\bseveral years\\b",
+      "\\b(senior|seasoned|expert in|extensive experience|veteran)\\b",
+      "\\bled (a|the) team\\b"
+    ]
+  }
+]

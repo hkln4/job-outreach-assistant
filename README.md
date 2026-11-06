@@ -76,10 +76,20 @@ enforces:
 - **Facts are computed, not generated.** Stacks come from manifests and
   imports, maturity from the file tree, commit share from history; numbers and
   technologies in letters and CV bullets that aren't in the sources are flagged.
-- **What isn't covered:** there is no measured hallucination rate yet (the test
-  suite uses fake LLMs, so it proves the checks, not model behaviour), and
-  paraphrase is only checked through quotes - a sentence can be supported by a
-  quote yet overstate it. You remain the reviewer.
+- **Measured with a trap eval.** `scripts/hallucination_eval.py` runs the real
+  drafting pipeline on six trap cases (`app/evals/cases/hallucination.json`): a
+  technology you don't have, a project without a metric, a model-written
+  "deployed for 500 users" angle, a research summary claim no page makes,
+  company facts the site never states, inflated experience. Each letter is
+  scored by code - trap patterns (fabrications), unsupported sentences,
+  ungrounded numbers/technologies, stock phrases - and the report lands in
+  `data/evals/`. It uses your draft model, so it costs money (about three calls
+  per case); each case runs in its own in-memory database. The pytest suite
+  checks the eval itself with fake models (an honest letter passes, a
+  fabricating one is caught).
+- **What isn't covered:** paraphrase is only checked through quotes - a sentence
+  can be supported by a quote yet overstate it - and the synthesized profile
+  summary isn't verified yet. You remain the reviewer.
 
 ## Demo
 
@@ -164,7 +174,7 @@ All of v1 plus roadmap phases 0-7 are built (`docs/ROADMAP.md`). By area:
   tokens and estimated cost), `/style` (standing writing rules and examples).
 - **LinkedIn research** (optional, off by default) - see
   [LinkedIn research](#linkedin-research-optional).
-- EN/TR interface; 363 passing tests (`tests/`).
+- EN/TR interface; 367 passing tests (`tests/`).
 
 **To actually use it**, pick a provider in `.env` (`LLM_PROVIDER=gemini` or
 `claude`) and set that provider's API key - everything that calls the LLM
@@ -353,6 +363,8 @@ and what it guards against:
 ```bash
 source .venv/bin/activate
 python -m pytest tests/ -v
+# real-model hallucination eval (costs money; uses LLM_PROVIDER from .env)
+python scripts/hallucination_eval.py --runs 3
 ```
 
 LLM-dependent logic is tested against `tests/fakes.py` (`FakeLLMProvider`,
@@ -389,9 +401,10 @@ app/
                               reply check, follow-ups, escalation, outcomes
   cv_builder/                bullet bank, tech list, assembly, Typst template + fonts,
                               ATS check, consistency check
+  evals/                     hallucination eval (trap cases + scoring)
   email_send/                Gmail OAuth2: send, thread classification, searches
   web/                       routes + Jinja2 templates + i18n + a little JS
-scripts/                     DB init, Gmail smoke tests, demo recorder
+scripts/                     DB init, Gmail smoke tests, hallucination eval, demo recorder
 docs/ROADMAP.md              phase specs and status
-tests/                       pytest suite (363 tests)
+tests/                       pytest suite (367 tests)
 ```

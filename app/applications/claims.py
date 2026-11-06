@@ -25,11 +25,19 @@ from app.companies.context import locate_quote
 from app.models import ProfileItem
 
 MIN_QUOTE_WORDS = 2
-COMPANY_WORDS_RE = re.compile(
-    r"\b(şirketiniz|şirketinizin|firmanız|firmanızın|ekibiniz|ekibinizin|ürününüz|ürünleriniz|projeleriniz|"
-    r"your (company|team|product|products|platform|work)|you (build|develop|make|offer|provide))\b",
+COMPANY_REF_RE = re.compile(
+    r"\b(şirketiniz\w*|firmanız\w*|ekibiniz\w*|ürün\w*niz\w*|projeleriniz\w*|"
+    r"your (company|team|product|products|platform|work|solutions?)|you)\b",
     re.IGNORECASE,
 )
+# A sentence about the company states a fact when it says what it does ...
+FACT_VERB_RE = re.compile(
+    r"\b(build|builds|develop|develops|make|makes|offer|offers|provide|provides|use|uses|serve|serves|work on|works on|"
+    r"specialize\w*|focus\w* on|run|runs|sell|sells|geliştir\w*|üret\w*|kullan\w*|sun\w*|sağla\w*|hizmet\w*|odaklan\w*|yap\w*)\b",
+    re.IGNORECASE,
+)
+# ... and not when it only says what the owner would like.
+WISH_RE = re.compile(r"\b(would|like to|glad|happy|eager|hope|look forward|isterim|isterdim|memnun|sevinirim|umuyorum|heyecan)\w*\b", re.IGNORECASE)
 _SENTENCE_RE = re.compile(r"(?<=[.!?])\s+|\n+")
 
 
@@ -58,12 +66,11 @@ def _quote_in(quote: str, text: str) -> bool:
 
 
 def looks_factual(sentence: str, company_name: str) -> bool:
-    return bool(
-        numbers_in(sentence)
-        or technologies_in(sentence)
-        or (company_name and fold(company_name) in fold(sentence))
-        or COMPANY_WORDS_RE.search(sentence)
-    )
+    """Code's own judgment of whether a sentence states something checkable."""
+    if numbers_in(sentence) or technologies_in(sentence):
+        return True
+    names_company = bool(company_name and fold(company_name) in fold(sentence)) or bool(COMPANY_REF_RE.search(sentence))
+    return names_company and bool(FACT_VERB_RE.search(sentence)) and not WISH_RE.search(sentence)
 
 
 def verify_support(support: dict, pages: list[dict], items: dict[int, ProfileItem]) -> dict | None:

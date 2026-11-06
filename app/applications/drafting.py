@@ -24,6 +24,7 @@ from app.applications.claims import check_claims
 from app.applications.draft_review import review_draft
 from app.applications.evidence import (
     EvidenceSelection,
+    citable_text,
     evidence_prompt_section,
     evidence_records,
     items_by_ids,
@@ -183,11 +184,10 @@ def portfolio_link_for(db: Session, item: ProfileItem | None, portfolio_url: str
 
 def _sources_text(profile: Profile, evidence_items: list[ProfileItem], company_text: str) -> str:
     """Everything a letter may draw facts from - for the grounding audit."""
+    # Only citable record text counts - model framing (role angles, talking
+    # points) must not make a number or technology look sourced.
     parts = [profile.summary or "", json.dumps(profile.skills or [], ensure_ascii=False), company_text]
-    for item in evidence_items:
-        parts.append(json.dumps(item.extracted or {}, ensure_ascii=False))
-        parts.append(json.dumps(item.facts or {}, ensure_ascii=False))
-        parts += [fact.get("answer", "") for fact in item.owner_facts or []]
+    parts += [citable_text(item) for item in evidence_items]
     return "\n".join(parts)
 
 
