@@ -161,6 +161,10 @@ class OwnerSettings(Base):
     linkedin_url: Mapped[str] = mapped_column(String, default="")
     github_url: Mapped[str] = mapped_column(String, default="")
     portfolio_url: Mapped[str] = mapped_column(String, default="")
+    # Generated CVs (phase 5): the CV whose Education / Experience / Certificates
+    # are copied verbatim, and whether the owner approved the template.
+    base_cv_id: Mapped[int | None] = mapped_column(nullable=True)
+    cv_template_approved: Mapped[bool] = mapped_column(default=False)
 
 
 def get_email_language(db) -> str:
@@ -233,8 +237,14 @@ class Application(Base):
     cv_id: Mapped[int | None] = mapped_column(ForeignKey("cvs.id"), nullable=True)
     # The posting this application answers (roadmap phase 3); None = open application.
     job_posting_id: Mapped[int | None] = mapped_column(ForeignKey("job_postings.id"), nullable=True)
+    # A CV assembled for this application (phase 5); attached instead of cv_id once approved.
+    generated_cv_id: Mapped[int | None] = mapped_column(nullable=True)
     # How the owner applied: email | site_form | ats_form | contact_form (phase 6).
     channel: Mapped[str] = mapped_column(String, default="email")
+    # When a reply / interview was recorded (phase 7 funnel: time to reply).
+    replied_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # Final outcome + an archive of what was sent: {result, note, at, archive{...}}
+    outcome: Mapped[dict] = mapped_column(JSON, default=dict)
     target_position: Mapped[str] = mapped_column(String, default="")
     # Owner-entered reason for reaching out (open/speculative applications have
     # no job posting - the reason is what the draft is grounded in instead).
@@ -491,4 +501,84 @@ class ProfileFact(Base):
     application_id: Mapped[int | None] = mapped_column(nullable=True)
     status: Mapped[ProfileFactStatus] = mapped_column(Enum(ProfileFactStatus), default=ProfileFactStatus.PROPOSED)
     profile_item_id: Mapped[int | None] = mapped_column(nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
+
+
+class CVProject(Base):
+    """A project that may appear on generated CVs (roadmap phase 5). The app
+    suggests them from profile records; the owner's select/deselect always wins."""
+
+    __tablename__ = "cv_projects"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    profile_item_id: Mapped[int | None] = mapped_column(ForeignKey("profile_items.id"), nullable=True)
+    name: Mapped[str] = mapped_column(String)
+    subtitle: Mapped[str] = mapped_column(String, default="")  # e.g. "Graduation Project"
+    link_url: Mapped[str] = mapped_column(String, default="")
+    selected: Mapped[bool] = mapped_column(default=True)
+    owner_decided: Mapped[bool] = mapped_column(default=False)  # suggestions never flip an owner choice
+    score: Mapped[int] = mapped_column(default=0)
+    sort_order: Mapped[int] = mapped_column(default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
+
+    profile_item: Mapped["ProfileItem | None"] = relationship()
+    bullets: Mapped[list["Bullet"]] = relationship(back_populates="project", order_by="Bullet.sort_order")
+
+
+class Bullet(Base):
+    """One CV bullet in the bank: written once per project, approved by the
+    owner, then reused by every generated CV. Edited bullets are locked - new
+    suggestions wait in `pending_text`, never overwriting the owner's words."""
+
+    __tablename__ = "bullets"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    project_id: Mapped[int] = mapped_column(ForeignKey("cv_projects.id"))
+    text: Mapped[str] = mapped_column(Text)
+    tags: Mapped[dict] = mapped_column(JSON, default=dict)  # {tech[], domain[], role_types[]}
+    source: Mapped[dict] = mapped_column(JSON, default=dict)  # {kind: result|owner_fact|record, quote}
+    status: Mapped[str] = mapped_column(String, default="draft")  # draft | approved
+    locked: Mapped[bool] = mapped_column(default=False)
+    pending_text: Mapped[str] = mapped_column(Text, default="")
+    flags: Mapped[dict] = mapped_column(JSON, default=dict)  # {ungrounded_numbers[], ungrounded_tech[], needs_metric}
+    sort_order: Mapped[int] = mapped_column(default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
+
+    project: Mapped["CVProject"] = relationship(back_populates="bullets")
+
+
+class TechSkill(Base):
+    """One technology on the CV's Technical Skills list, with where it is used."""
+
+    __tablename__ = "tech_skills"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String)
+    group: Mapped[str] = mapped_column(String, default="frameworks")  # languages | frameworks | technologies | genai
+    # [{kind: repo|experience|manual, ref, item_id}]
+    evidence: Mapped[list] = mapped_column(JSON, default=list)
+    manual: Mapped[bool] = mapped_column(default=False)
+    hidden: Mapped[bool] = mapped_column(default=False)
+    sort_order: Mapped[int] = mapped_column(default=0)
+
+
+class GeneratedCV(Base):
+    """A CV assembled for one application (roadmap phase 5): what was chosen,
+    the rendered PDF and its checks. Approved -> attached to the application."""
+
+    __tablename__ = "generated_cvs"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    application_id: Mapped[int | None] = mapped_column(ForeignKey("applications.id"), nullable=True)
+    job_posting_id: Mapped[int | None] = mapped_column(ForeignKey("job_postings.id"), nullable=True)
+    # {project_ids[], bullet_ids{project_id: [ids]}, bullet_overrides{id: text}, skills{group: [names]},
+    #  certificates: bool, role_type, keywords[]}
+    selection: Mapped[dict] = mapped_column(JSON, default=dict)
+    language: Mapped[str] = mapped_column(String, default="en")
+    pdf_path: Mapped[str] = mapped_column(String, default="")
+    sha256: Mapped[str] = mapped_column(String, default="")
+    keyword_report: Mapped[dict] = mapped_column(JSON, default=dict)  # {covered[], missing[]}
+    ats_report: Mapped[dict] = mapped_column(JSON, default=dict)  # {passed, checks[], page_count, word_diffs[]}
+    status: Mapped[str] = mapped_column(String, default="draft")  # draft | approved
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)

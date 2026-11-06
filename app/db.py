@@ -74,6 +74,11 @@ _COLUMN_MIGRATIONS = [
     ("applications", "channel", "VARCHAR DEFAULT 'email'"),
     *[("owner_settings", column, "VARCHAR DEFAULT ''") for column in (
         "full_name", "title", "email", "phone", "city", "linkedin_url", "github_url", "portfolio_url")],
+    ("owner_settings", "base_cv_id", "INTEGER"),
+    ("owner_settings", "cv_template_approved", "BOOLEAN DEFAULT 0"),
+    ("applications", "generated_cv_id", "INTEGER"),
+    ("applications", "replied_at", "DATETIME"),
+    ("applications", "outcome", "JSON DEFAULT '{}'"),
 ]
 
 

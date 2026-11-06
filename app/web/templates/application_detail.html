@@ -143,7 +143,11 @@
                 {% endfor %}
               </select>
             </form>
-            {% if not application.cv %}
+            {% if generated_cv %}
+              <a href="/cv-builder/cvs/{{ generated_cv.id }}"><span class="badge {{ 'badge-state' if generated_cv.status == 'approved' else 'badge-soft' }}">{{ t("cvb.tailored_cv") }} #{{ generated_cv.id }} · {{ generated_cv.status }}</span></a>
+            {% endif %}
+            <form method="post" action="/cv-builder/for-application/{{ application.id }}" style="display:inline"><button type="submit" class="secondary">{{ t("cvb.tailor") }}</button></form>
+            {% if not application.cv and not (generated_cv and generated_cv.status == 'approved') %}
               <span class="badge badge-hard">{{ t("application_detail.no_cv_attached") }}</span>
             {% endif %}
           {% elif application.cv %}
@@ -208,10 +212,29 @@
     </details>
     {% endif %}
 
+    {% if application.state.value == "PENDING_APPROVAL" and form_channels %}
+    <details class="section card">
+      <summary>{{ t("channels.apply_by_form") }} ({{ form_channels | length }})</summary>
+      <p class="hint">{{ t("channels.apply_by_form_hint") }}</p>
+      {% for ch in form_channels %}
+        <div class="evidence">
+          <span class="badge">{{ t("channels.kind." ~ ch.kind) }}</span>{% if ch.provider %} <span class="badge">{{ ch.provider }}</span>{% endif %}
+          <a href="{{ ch.url }}" target="_blank" rel="noopener">{{ ch.url }}</a>
+          {% if ch.form_schema %}<ul>{% for f in ch.form_schema.fields %}<li><code>{{ f.type }}</code> {{ f.label or f.name }}{% if f.required %} *{% endif %}{% if f.maxlength %} <span class="muted">(max {{ f.maxlength }}, {{ t("channels.letter_chars") }} {{ application.cover_letter_body | length }})</span>{% endif %}</li>{% endfor %}</ul>{% endif %}
+          <form method="post" action="/applications/{{ application.id }}/submitted" class="inline-form">
+            <input type="hidden" name="channel" value="{{ 'ats_form' if ch.kind == 'ats_board' else ch.kind }}">
+            <input type="hidden" name="form_url" value="{{ ch.url }}">
+            <button type="submit" class="secondary">{{ t("channels.mark_submitted") }}</button>
+          </form>
+        </div>
+      {% endfor %}
+    </details>
+    {% endif %}
+
     {% if application.state.value == "PENDING_APPROVAL" %}
     <div class="review-panel">
       <form method="post" action="/applications/{{ application.id }}/approve" data-loading-text="{{ t('loading.sending') }}" class="review-approve-form">
-        <button type="submit" {{ "disabled" if not recipient or not application.cv }}>{{ t("application_detail.button.approve") }}</button>
+        <button type="submit" {{ "disabled" if not recipient or not (application.cv or (generated_cv and generated_cv.status == 'approved')) }}>{{ t("application_detail.button.approve") }}</button>
       </form>
       <details class="reject-toggle">
         <summary>{{ t("application_detail.button.reject") }}</summary>
@@ -222,6 +245,12 @@
       </details>
     </div>
     {% endif %}
+  {% endif %}
+
+  {% if application.channel and application.channel != "email" and application.sent_at %}
+  <div class="card"><p>{{ t("channels.applied_via") }} <span class="badge">{{ t("channels.kind." ~ application.channel.replace("ats_form", "ats_board")) }}</span>{% if application.sent_to %} <a href="{{ application.sent_to }}" target="_blank" rel="noopener">{{ application.sent_to }}</a>{% endif %}</p>
+    <form method="post" action="/applications/{{ application.id }}/check-reply" data-loading-text="{{ t('loading.checking') }}"><button type="submit" class="secondary">{{ t("application_detail.button.check_reply") }}</button></form>
+    {% include "_application_notes.html" %}</div>
   {% endif %}
 
   {% if application.gmail_thread_id %}
@@ -273,6 +302,18 @@
     {% if is_good_example %}<span class="badge badge-state">{{ t("style.is_example") }}</span>
     {% else %}<button type="submit" class="secondary">{{ t("style.mark_example") }}</button>{% endif %}
   </form>
+  {% endif %}
+
+  {% if application.sent_at %}
+  <div class="section card">
+    <h2>{{ t("funnel.outcome_title") }}</h2>
+    {% if application.outcome and application.outcome.result %}<p><span class="badge badge-state">{{ application.outcome.result | replace("_", " ") }}</span> {{ application.outcome.note }} <span class="hint">{{ (application.outcome.at or "")[:10] }} · {{ t("funnel.archived") }}</span></p>{% endif %}
+    <form method="post" action="/applications/{{ application.id }}/outcome" class="inline-form">
+      <select name="state">{% for s in allowed_states if s.value != "AWAITING_REPLY" %}<option value="{{ s.value }}">{{ s.value | replace("_", " ") | capitalize }}</option>{% endfor %}</select>
+      <input type="text" name="note" placeholder="{{ t('funnel.note_placeholder') }}">
+      <button type="submit" class="secondary">{{ t("funnel.record") }}</button>
+    </form>
+  </div>
   {% endif %}
 
   {% if application.state.value != "PENDING_APPROVAL" %}

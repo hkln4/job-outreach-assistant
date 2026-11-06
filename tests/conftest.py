@@ -12,6 +12,7 @@ os.environ.setdefault("GEMINI_API_KEY", "test-key-not-real")
 TEST_FILES_DIR = tempfile.mkdtemp(prefix="outreach-tests-")
 os.environ["SENT_CVS_DIR"] = os.path.join(TEST_FILES_DIR, "sent_cvs")
 os.environ["CV_VARIANTS_DIR"] = os.path.join(TEST_FILES_DIR, "cv_variants")
+os.environ["GENERATED_CVS_DIR"] = os.path.join(TEST_FILES_DIR, "generated_cvs")
 os.environ["DISCOVERY_UPLOADS_DIR"] = os.path.join(TEST_FILES_DIR, "discovery_uploads")
 # Tests send back-to-back; the deliverability gap is exercised explicitly in
 # test_outreach.py with a patched Settings instead.

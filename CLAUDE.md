@@ -3,7 +3,7 @@
 Project guide for the coding agent. Read this fully before working on the project.
 Sections 1-9 describe the system and the rules that never change. A rule tagged
 **(phase N)** belongs to a roadmap phase - check its status in `docs/ROADMAP.md` before
-assuming the code already does it. Section 10 is what is already built. Section 11 is the
+assuming the code already does it (phases 0-7 are built). Section 10 is what is already built. Section 11 is the
 roadmap summary (full specs in `docs/ROADMAP.md`) - work on the earliest unfinished phase
 unless the owner asks for something else. Section 12 is what must not be built without the
 owner asking.
@@ -177,7 +177,7 @@ Added by the roadmap (fields are a guide, not a contract):
 - **External-data providers are flag-gated.** LinkedIn research and LinkedIn posting intake (`LINKEDIN_RESEARCH_ENABLED`) and the search API (`SEARCH_API_ENABLED`, phase 3) are off by default.
 - **LinkedIn company research** only under all of: `LINKEDIN_RESEARCH_ENABLED` (off by default), triggered by hand for one company at a time (never on creation, never in a bulk loop), via `mcp-server-linkedin` (stickerdaniel/linkedin-mcp-server) with a **dedicated throwaway account**, reading only - messaging and connection tools are never called. Findings are cached and re-fetched only on request.
 - **Browser automation** is not built (section 12). If it ever is: headed, on the owner's machine, one application at a time, behind a flag that is off by default; it never solves or bypasses a CAPTCHA, never creates accounts, never clicks submit.
-- **Search API** (phase 3) is used only to find ATS board tokens - never as the source of postings, and never to resolve a company name to a website (section 12).
+- **Search API** (phase 3, Tavily by default via `SEARCH_API_PROVIDER`) is used only to find ATS board tokens - never as the source of postings, and never to resolve a company name to a website (section 12).
 
 ---
 
@@ -194,7 +194,7 @@ The full v1 workflow is implemented end-to-end (test count in README):
 - Review loop, single-send guarantee (conditional claim before Gmail), Gmail send with attachment, reply check, same-thread follow-ups, employee escalation.
 - Optional LinkedIn company research. EN/TR UI. Dashboard with action queues.
 
-Roadmap phases built since v1 are listed with their status in `docs/ROADMAP.md`.
+Roadmap phases 0-7 are built on top of v1 (details and notes in `docs/ROADMAP.md`): LLM cost log (`/costs`); deterministic email / form / ATS detection; priority-budgeted company context; bounce and auto-reply handling; deep repo records with code-computed facts and diffed re-analysis; per-entry CV records; liveness and new discovery sources; job postings (`/postings`) with code gates, fit, ATS boards and careers watch; angle -> plain-text letter -> metadata drafting with app-written signature, style memory and grounding audit (`/style`); bullet bank, tech list and Typst CV builder (`/cv-builder`); form channel tracking; outcomes funnel (`/funnel`).
 
 ---
 

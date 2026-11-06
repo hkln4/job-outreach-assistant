@@ -116,6 +116,17 @@
         <p>{{ company.research.summary }}</p>
       {% endif %}
 
+      {% set job_pages = company.research.pages | selectattr("kind", "defined") | selectattr("kind", "equalto", "job") | list %}
+      {% if job_pages %}
+        <h3>{{ t("company_detail.job_pages_title") }} ({{ job_pages | length }})</h3>
+        <ul class="link-list">
+          {% for page in job_pages %}
+            <li><a href="{{ page.url }}" target="_blank" rel="noopener">{{ page.url }}</a>
+              <form method="post" action="/postings/from-page/{{ company.id }}" style="display:inline" data-loading-text="{{ t('loading.reading_posting') }}">
+                <input type="hidden" name="url" value="{{ page.url }}"><button type="submit" class="secondary">{{ t("company_detail.add_as_posting") }}</button></form></li>
+          {% endfor %}
+        </ul>
+      {% endif %}
       {% if company.research.open_positions %}
         <h3>{{ t("company_detail.open_positions_title") }} ({{ company.research.open_positions | length }})</h3>
         <ul>

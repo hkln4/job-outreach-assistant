@@ -201,10 +201,16 @@ def test_search_finds_board_tokens_only_when_enabled(monkeypatch):
             pass
         monkeypatch.setattr(settings, "search_api_enabled", True)
         monkeypatch.setattr(settings, "search_api_key", "test-key")
-        results = {"web": {"results": [{"url": "https://jobs.lever.co/searchco/123"}, {"url": "https://jobs.ashbyhq.com/other"}, {"url": "https://news.example/x"}]}}
-        client = httpx.Client(transport=httpx.MockTransport(lambda request: httpx.Response(200, json=results)))
+        sent = {}
+
+        def tavily(request: httpx.Request) -> httpx.Response:
+            sent.update(json.loads(request.content), auth=request.headers["authorization"])
+            return httpx.Response(200, json={"results": [{"url": "https://jobs.lever.co/searchco/123"}, {"url": "https://jobs.ashbyhq.com/other"}, {"url": "https://news.example/x"}]})
+
+        client = httpx.Client(transport=httpx.MockTransport(tavily))
         found = search.discover_boards(db, ["site:jobs.lever.co Istanbul"], client=client)
         assert sorted((b.provider, b.token) for b in found["new_boards"]) == [("ashby", "other"), ("lever", "searchco")]
+        assert sent["include_domains"] == ["jobs.lever.co"] and sent["auth"] == "Bearer test-key"  # site: -> include_domains
         assert db.query(JobPosting).filter(JobPosting.url.like("%searchco%")).count() == 0  # tokens only, no postings
     finally:
         db.close()

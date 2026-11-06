@@ -152,6 +152,24 @@ def careers_watch(db: Session = Depends(get_db), llm: LLMProvider = Depends(get_
     return RedirectResponse(url=f"/postings?watch={values}", status_code=303)
 
 
+@router.post("/from-page/{company_id}")
+def posting_from_page(company_id: int, url: str = Form(...), db: Session = Depends(get_db), llm: LLMProvider = Depends(get_llm)):
+    """A job page research found on the company's own site -> a JobPosting
+    (read fresh from that URL), linked to the company."""
+    company = db.get(Company, company_id)
+    if company is None:
+        raise NotFoundError(f"Company {company_id} not found")
+    try:
+        posting, _ = add_posting(db, llm, url=url, source="careers_page")
+    except ValueError as exc:
+        return RedirectResponse(url=f"/postings?error={quote(str(exc)[:300])}", status_code=303)
+    if posting.company_id is None:
+        posting.company_id = company.id
+        posting.proposed_company = {}
+        db.commit()
+    return RedirectResponse(url=f"/postings/{posting.id}", status_code=303)
+
+
 @router.post("/from-company/{company_id}")
 def boards_for_company(company_id: int, db: Session = Depends(get_db)):
     company = db.get(Company, company_id)

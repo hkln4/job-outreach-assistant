@@ -243,7 +243,7 @@ Status: done.
   when a board is detected (verify each endpoint's shape before relying on it in production;
   parsers are defensive). Others are read as HTML careers pages.
 - **ATS board discovery (search -> board -> API):** `SEARCH_API_ENABLED` + `SEARCH_API_KEY`
-  (Brave Search). A search only finds board tokens; postings are always read fresh from the
+  (Tavily by default, Brave as an alternative). A search only finds board tokens; postings are always read fresh from the
   board API. Remote postings get an eligibility gate ("Remote - US", "US only", "EU only",
   "must be authorized to work in ...").
 - **Turkey location filter (code):** board APIs return a location per posting.
@@ -298,11 +298,11 @@ Status: done.
 
 ## Phase 5 - Bullet bank, tech-stack list and CV builder
 
-Status: in progress - Lato fonts bundled in `app/cv_builder/fonts/` (OFL), `typst` and
-`openpyxl` in requirements. Finding: Typst's default kerning makes pypdf extract
-"H asan K alin"; with `#set text(kerning: false)` the text layer is clean ("mid-LTV" and
-"single-plane" survive). Use kerning off in the template. Nothing else of this phase is
-built yet. Reference layout: the owner's FlowCV CV (`data/cv_variants/HasanKalin.pdf`).
+Status: done (`/cv-builder`). Typst template `app/cv_builder/templates/cv.typ`, Lato in
+`app/cv_builder/fonts/` (OFL). Kerning is off in the template: with it on, pypdf extracted
+"H asan K alin"; words with a hyphen are boxed so "mid-LTV" never breaks. The consistency
+check (`app/cv_builder/consistency.py`) compares metric numbers per project across record,
+bullets, portfolio and CV.
 
 No CV is written per application. Bullets are written once per project into a bank; each
 CV is assembled from the bank, mostly by code.
@@ -368,7 +368,7 @@ numbers for the same metric).
 
 ## Phase 6 - Form and posting detection
 
-Status: not started.
+Status: done.
 
 Owner decision (2026-11): detecting forms and postings on company sites matters now;
 automating form filling does not. No Playwright, no fill assist.
@@ -386,7 +386,7 @@ automating form filling does not. No Playwright, no fill assist.
 
 ## Phase 7 - Outcomes and analytics
 
-Status: not started.
+Status: done (`/funnel`, "Record outcome" on the application page).
 
 - Funnel page: applications by source, channel, CV variant, language, angle type -> reply /
   interview rates and median time to reply. Plain HTML + inline SVG.

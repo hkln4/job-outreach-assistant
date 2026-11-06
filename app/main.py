@@ -20,9 +20,11 @@ from app.web.routes import (
     company_detail,
     companies,
     costs,
+    cv_builder,
     cvs,
     dashboard,
     discovery,
+    funnel,
     lang,
     postings,
     preferences,
@@ -93,6 +95,8 @@ app.include_router(applications.router)
 app.include_router(costs.router)
 app.include_router(postings.router)
 app.include_router(style.router)
+app.include_router(cv_builder.router)
+app.include_router(funnel.router)
 
 
 if __name__ == "__main__":

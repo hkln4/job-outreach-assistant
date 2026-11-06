@@ -34,6 +34,7 @@ from app.applications.review import (
     approve_and_send,
     find_prior_send,
     is_sent,
+    mark_submitted,
     set_application_state,
 )
 from app.db import get_db
@@ -47,6 +48,7 @@ from app.models import (
     ContactState,
     FollowUp,
     FollowUpState,
+    GeneratedCV,
     StyleExample,
     StyleNote,
 )
@@ -151,6 +153,9 @@ def application_detail(
             "draft_review": draft_review,
             "review_feedback": review_feedback(draft_review),
             "follow_ups": follow_ups,
+            "form_channels": [c for c in (application.company.research or {}).get("channels_detected") or [] if c.get("kind") in ("site_form", "ats_board", "contact_form")],
+            "generated_cv": db.get(GeneratedCV, application.generated_cv_id) if application.generated_cv_id
+            else db.query(GeneratedCV).filter(GeneratedCV.application_id == application.id).order_by(GeneratedCV.id.desc()).first(),
             "is_good_example": db.query(StyleExample).filter(StyleExample.application_id == application.id).first() is not None,
             "alternative_emails": alternative_emails(application),
             "pending_follow_up": next(
@@ -293,6 +298,25 @@ def apply_review_edit(application_id: int, index: int, db: Session = Depends(get
         refresh_grounding(db, application)
         db.commit()
     return RedirectResponse(url=f"/applications/{application_id}#draft-checks", status_code=303)
+
+
+@router.post("/{application_id}/submitted")
+def form_submitted(
+    application_id: int,
+    channel: str = Form(...),
+    form_url: str = Form(""),
+    force: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    """The owner submitted the application through a form himself."""
+    application = _application_or_404(db, application_id)
+    try:
+        mark_submitted(db, application, channel, form_url.strip(), allow_duplicate=bool(force))
+    except AlreadySentError:
+        return _blocked_redirect(application_id)
+    except DuplicateSendError:
+        return RedirectResponse(url=f"/applications/{application_id}?duplicate=1", status_code=303)
+    return RedirectResponse(url=f"/applications/{application_id}", status_code=303)
 
 
 @router.post("/{application_id}/good-example")

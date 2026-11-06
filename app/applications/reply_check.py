@@ -29,6 +29,8 @@ def _company_domain(application: Application) -> str:
     company's website."""
     address = application.sent_to or ""
     domain = address.split("@", 1)[1].lower() if "@" in address else ""
+    if not domain and address.startswith("http") and application.channel == "site_form":
+        domain = registrable_domain(address)  # a form on the company's own site
     if not domain and application.company and application.company.website_url:
         domain = registrable_domain(application.company.website_url)
     return "" if domain in FREE_MAIL_DOMAINS else domain
@@ -118,6 +120,11 @@ def check_application_reply(db: Session, application: Application) -> str:
     recorded as a "possible reply" note for the owner to confirm. Always
     stamps last_checked_at."""
     if not application.gmail_thread_id:
+        # A form application has no thread: only the domain search can see a reply.
+        if application.channel != "email" and application.state == ApplicationState.AWAITING_REPLY and application.sent_at:
+            application.last_checked_at = datetime.now(timezone.utc)
+            _note_possible_replies(application)
+            db.commit()
         return "none"
 
     result = classify_thread(application.gmail_thread_id)
@@ -126,6 +133,7 @@ def check_application_reply(db: Session, application: Application) -> str:
     awaiting = application.state == ApplicationState.AWAITING_REPLY
     if kind == "reply" and awaiting:
         application.state = ApplicationState.REPLIED
+        application.replied_at = application.replied_at or datetime.now(timezone.utc)
     elif kind == "bounce" and awaiting:
         _add_note(application, {"kind": "bounce", "detail": result["detail"], "message_id": result["message_id"]})
         mark_bounced(db, application, result["detail"])
@@ -133,23 +141,22 @@ def check_application_reply(db: Session, application: Application) -> str:
         _add_note(application, {"kind": "auto_reply", "detail": result["detail"], "message_id": result["message_id"]})
 
     if kind in ("none", "auto_reply") and awaiting and application.sent_at is not None:
-        sent_at = application.sent_at if application.sent_at.tzinfo else application.sent_at.replace(tzinfo=timezone.utc)
-        try:
-            found = possible_replies(_company_domain(application), sent_at, application.gmail_thread_id)
-        except Exception:  # noqa: BLE001 - the thread result above still counts
-            found = []
-        for message in found:
-            _add_note(
-                application,
-                {
-                    "kind": "possible_reply",
-                    "detail": f"{message['from']}: {message['subject']}",
-                    "message_id": message["id"],
-                    "date": message["date"],
-                },
-            )
+        _note_possible_replies(application)
     db.commit()
     return kind
+
+
+def _note_possible_replies(application: Application) -> None:
+    sent_at = application.sent_at if application.sent_at.tzinfo else application.sent_at.replace(tzinfo=timezone.utc)
+    try:
+        found = possible_replies(_company_domain(application), sent_at, application.gmail_thread_id)
+    except Exception:  # noqa: BLE001 - a failed search never fails the check
+        found = []
+    for message in found:
+        _add_note(
+            application,
+            {"kind": "possible_reply", "detail": f"{message['from']}: {message['subject']}", "message_id": message["id"], "date": message["date"]},
+        )
 
 
 def auto_check_if_due(db: Session, application: Application) -> None:
@@ -173,11 +180,11 @@ def auto_check_if_due(db: Session, application: Application) -> None:
 def check_all_awaiting(db: Session) -> dict:
     """Bulk check for the dashboard button. Returns {"checked": n, "replies": n,
     "bounces": n}. A Gmail failure on one thread doesn't abort the rest."""
-    applications = (
-        db.query(Application)
-        .filter(Application.state == ApplicationState.AWAITING_REPLY, Application.gmail_thread_id.isnot(None))
-        .all()
-    )
+    applications = [
+        a
+        for a in db.query(Application).filter(Application.state == ApplicationState.AWAITING_REPLY).all()
+        if a.gmail_thread_id or a.channel != "email"
+    ]
     checked = 0
     replies = 0
     bounces = 0

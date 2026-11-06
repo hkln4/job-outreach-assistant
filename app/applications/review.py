@@ -93,6 +93,8 @@ def set_application_state(db: Session, application: Application, new_state: Appl
             f"Application {application.id} can't move from {application.state.value} to {new_state.value}."
         )
     application.state = new_state
+    if new_state in (ApplicationState.REPLIED, ApplicationState.INTERVIEW) and application.replied_at is None:
+        application.replied_at = datetime.now(timezone.utc)
     db.commit()
     return application
 
@@ -158,14 +160,35 @@ def _find_after_failed_send(message_id: str, to: str, subject: str, after: datet
         return None
 
 
-def snapshot_cv(application: Application) -> dict:
-    """Copy the CV about to be attached to data/sent_cvs/ and describe it:
+def attachment_source(db: Session, application: Application) -> tuple[Path, str, int | None] | None:
+    """(file, display name, cv_id) of what this application attaches: an
+    approved generated CV (phase 5) wins over the chosen CV variant."""
+    if application.generated_cv_id:
+        from app.models import GeneratedCV
+
+        generated = db.get(GeneratedCV, application.generated_cv_id)
+        if generated is not None and generated.status == "approved" and generated.pdf_path:
+            from app.applications.signature import owner_identity
+
+            name = owner_identity(db).get("full_name") or "CV"
+            return Path(generated.pdf_path), f"{safe_component(name)}_CV.pdf", None
+    cv = application.cv
+    if cv is not None and cv.file_path:
+        source = Path(cv.file_path)
+        return source, f"{safe_component(cv.name)}{source.suffix}", cv.id
+    return None
+
+
+def snapshot_cv(db: Session, application: Application) -> dict:
+    """Copy the file about to be attached to SENT_CVS_DIR and describe it:
     {path, sha256, name}. The copy is what gets attached, so the record and
     the email can't differ."""
-    cv = application.cv
-    source = Path(cv.file_path)
+    found = attachment_source(db, application)
+    if found is None:
+        return {}
+    source, name, cv_id = found
     if not source.is_file():
-        raise ValueError(f"The CV file for {cv.name!r} is missing ({cv.file_path}) - re-upload it before sending.")
+        raise ValueError(f"The CV file for {name!r} is missing ({source}) - re-upload it before sending.")
     data = source.read_bytes()
     digest = hashlib.sha256(data).hexdigest()
     sent_dir = Path(get_settings().sent_cvs_dir)
@@ -176,8 +199,9 @@ def snapshot_cv(application: Application) -> dict:
     return {
         "path": str(target),
         "sha256": digest,
-        "name": f"{safe_component(cv.name)}{source.suffix}",
-        "cv_id": cv.id,
+        "name": name,
+        "cv_id": cv_id,
+        "generated_cv_id": application.generated_cv_id if cv_id is None else None,
         "original_path": str(source),
     }
 
@@ -197,7 +221,7 @@ def approve_and_send(db: Session, application: Application, to: str, allow_dupli
         raise SendDelayError(wait)
 
     # Copy the CV first: a missing file must stop the send before the claim.
-    snapshot = snapshot_cv(application) if application.cv and application.cv.file_path else {}
+    snapshot = snapshot_cv(db, application)
 
     # Claim the send before talking to Gmail: a conditional UPDATE only one
     # request can win (SQLite serializes writes), so a double-click or two tabs
@@ -216,7 +240,6 @@ def approve_and_send(db: Session, application: Application, to: str, allow_dupli
     if not claimed:
         raise AlreadySentError(application)
 
-    cv = application.cv
     message_id = new_message_id()
     application.rfc_message_id = message_id
     db.commit()
@@ -226,8 +249,8 @@ def approve_and_send(db: Session, application: Application, to: str, allow_dupli
             to=to,
             subject=application.subject,
             body_text=application.cover_letter_body,
-            attachment_path=snapshot.get("path") or (cv.file_path if cv else None),
-            attachment_name=snapshot.get("name") or (f"{safe_component(cv.name)}{Path(cv.file_path).suffix}" if cv else None),
+            attachment_path=snapshot.get("path") or None,
+            attachment_name=snapshot.get("name") or None,
             message_id=message_id,
         )
     except Exception:
@@ -258,4 +281,32 @@ def approve_and_send(db: Session, application: Application, to: str, allow_dupli
         application.job_posting.status = PostingStatus.APPLIED
     db.commit()
     db.refresh(application)
+    return application
+
+
+FORM_CHANNELS = ("site_form", "ats_form", "contact_form")
+
+
+def mark_submitted(db: Session, application: Application, channel: str, form_url: str = "", allow_duplicate: bool = False) -> Application:
+    """The owner filled and submitted a form himself (the app never does):
+    record the channel and move to AWAITING_REPLY. Same dedup rule as email."""
+    ensure_not_sent(application)
+    if channel not in FORM_CHANNELS:
+        raise ValueError(f"Unknown form channel {channel!r}.")
+    if not allow_duplicate:
+        prior = find_prior_send(db, application.company_id, "", exclude_application_id=application.id)
+        if prior is not None:
+            raise DuplicateSendError(prior)
+    from app.applications.follow_ups import next_follow_up_due
+
+    application.channel = channel
+    application.sent_to = form_url
+    application.state = ApplicationState.AWAITING_REPLY
+    application.sent_at = datetime.now(timezone.utc)
+    application.follow_up_due_at = next_follow_up_due(application.sent_at)
+    if application.job_posting is not None:
+        from app.models import PostingStatus
+
+        application.job_posting.status = PostingStatus.APPLIED
+    db.commit()
     return application

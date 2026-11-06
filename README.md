@@ -155,8 +155,9 @@ from technopark directories:
   across pages (36 px buttons/inputs, 28 px inside tables), no sideways scrolling
   down to phone width, and pages keep their scroll position after an action.
 - Roadmap phases 0-4 built (see `docs/ROADMAP.md`): LLM cost log (`/costs`), footer/obfuscated email and form/ATS detection from raw HTML, priority-budgeted company context, bounce / auto-reply handling, double-send protection, sent-CV snapshots, hierarchical synthesis, editable profile records; deep repo records (code-computed facts, verified quotes, change detection with diffed re-analysis), per-entry CV/LinkedIn records, profile write-up; no-LLM liveness check and new discovery sources (CSV/XLSX, JSON endpoints, GitHub orgs); job postings (`/postings`: gates, fit, ATS boards with Turkey filter, careers-page watch, search-based board discovery); letter quality (angles, plain-text prose, app-written signature, style memory, reviewer edits, grounding audit, fact capture).
-- Phase 5 (bullet bank, tech list, CV builder) is next; phase 6-7 after it.
-- 350 passing tests (`tests/`), including route-level end-to-end flow tests.
+- Phase 5: bullet bank, evidence-backed tech list and a Typst CV builder in the owner's FlowCV layout (`/cv-builder`) with an ATS text-layer check. Phase 6: form / posting detection and form-channel tracking (no form filling). Phase 7: outcomes archive and funnel (`/funnel`).
+- Search for ATS boards goes through Tavily (`SEARCH_API_PROVIDER=tavily`, off by default).
+- 359 passing tests (`tests/`), including route-level end-to-end flow tests.
 
 **To actually use it**, pick a provider in `.env` (`LLM_PROVIDER=gemini` or
 `claude`) and set that provider's API key - everything that calls the LLM
@@ -366,5 +367,5 @@ scripts/
   gmail_smoke_test.py    manual OAuth + send verification
   send_test_email.py      send a real test mail (for the reply-check flow)
   demo/                    throwaway DB + stub server used to record the demo GIF
-tests/                 pytest suite (350 tests)
+tests/                 pytest suite (359 tests)
 ```

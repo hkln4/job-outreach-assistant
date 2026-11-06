@@ -34,6 +34,9 @@ class Settings(BaseSettings):
     database_url: str = "sqlite:///data/app.db"
     # Uploaded CV variants.
     cv_variants_dir: str = "data/cv_variants"
+    # Generated CVs (roadmap phase 5).
+    generated_cvs_dir: str = "data/generated_cvs"
+    cv_page_limit: int = 1
     # Copies of every CV exactly as attached (Application.cv_snapshot).
     sent_cvs_dir: str = "data/sent_cvs"
 
@@ -90,7 +93,7 @@ class Settings(BaseSettings):
     posting_stale_days: int = 45  # older than this -> "old posting" legitimacy flag
     # Search API, only to find ATS board slugs (never as the source of postings).
     search_api_enabled: bool = False
-    search_api_provider: str = "brave"
+    search_api_provider: str = "tavily"  # tavily | brave
     search_api_key: str = ""
 
     # App server
