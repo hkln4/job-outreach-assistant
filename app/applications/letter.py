@@ -33,7 +33,10 @@ The owner: lead with ONE project or experience that genuinely fits (same problem
 technology used for the same purpose), in at most two short sentences - what he worked on, \
 what he built, optionally one concrete result from the records. At most one more supporting \
 sentence, only if it adds relevance. Never list unrelated projects to show breadth. Mention a \
-technology only when a record shows he used it. Numbers only from the records.
+technology only when a record shows he used it. Numbers only from the records. In PROFILE \
+EVIDENCE, state facts only from FACTS lines, verbatim CV bullets and OWNER STATED lines; MODEL \
+FRAMING lines may guide emphasis but are not a source. RESEARCH NOTES and the company pages are \
+the only sources about the company.
 
 Without a template, four short paragraphs: who he is and the position; one factual reason for \
 contacting this company; the lead project (+ optional supporting sentence); a short closing \
@@ -69,12 +72,33 @@ Return:
 - "unsupported_claims": claims about the owner in the email that no record supports (normally empty).
 - "reasoning": a short note to the owner in the email's language: what the company does, which \
 project was used and why, why this position and CV.
+- "claims": EVERY sentence of the email body, in order, each as:
+  - "sentence": copied exactly from the body;
+  - "kind": "company" (states something about the company), "owner" (states something about \
+the owner - experience, project, skill, result), "both", or "none" (greeting, closing, request, \
+mention of the attached CV - nothing to verify);
+  - "supports": for company/owner/both, one entry per fact: "source" (a company [url] header \
+copied exactly, or a record E-number like "E12") and "quote" (the words in THAT source that \
+state the fact, copied exactly). Never use the email itself as a source. A fact you cannot \
+find in a source gets no support - do not invent one.
 """ + UNTRUSTED_RULE
 
 SUBJECT_RE = re.compile(r"^\s*(?:subject|konu)\s*:\s*(.+)$", re.IGNORECASE | re.MULTILINE)
 
 
+class _Support(BaseModel):
+    source: str
+    quote: str
+
+
+class _Claim(BaseModel):
+    sentence: str
+    kind: str
+    supports: list[_Support] = []
+
+
 class LetterMetadata(BaseModel):
+    claims: list[_Claim] = Field(default_factory=list)
     target_position: str = ""
     cv_choice_name: str = ""
     reasoning: str = ""
@@ -135,7 +159,7 @@ def letter_metadata(llm: LLMProvider, *, subject: str, body: str, context: str) 
         prompt=f"EMAIL SUBJECT: {subject}\n\nEMAIL BODY:\n{body}\n\n{context}",
         system=META_SYSTEM_PROMPT,
         temperature=0.0,
-        max_output_tokens=1200,
+        max_output_tokens=3000,
         json_schema=LetterMetadata.model_json_schema(),
     )
     data = parse_json_object(response.text, fallback={})

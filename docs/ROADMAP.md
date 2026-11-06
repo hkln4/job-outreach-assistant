@@ -391,3 +391,22 @@ Status: done (`/funnel`, "Record outcome" on the application page).
 - Funnel page: applications by source, channel, CV variant, language, angle type -> reply /
   interview rates and median time to reply. Plain HTML + inline SVG.
 - "Outcome" action records the result and archives the posting, letter, CV and answers.
+
+---
+
+## After the roadmap - hallucination guards
+
+Status: done.
+
+- Sentence-level evidence for letters (`app/applications/claims.py`): the metadata call maps
+  each sentence to a source (page URL or record E-number) and a quote; code verifies the quote
+  in that source, requires a page quote for company claims and a record quote for owner claims,
+  re-checks "nothing to verify" sentences that look factual, and lists unsupported sentences in
+  "check before sending". Edits mark the check stale; "re-check" re-runs it.
+- No reuse of unverified model text: the research summary reaches prompts only as
+  quote-verified sentences (`research.summary_verified`), open positions only when their title is
+  on a page; repo records split into citable facts and labelled model framing (role angles and
+  talking points filtered by code); claim checks accept quotes only from citable fields
+  (`app/applications/evidence.py::citable_text`).
+- Not yet: a measured hallucination rate (an eval set of real samples), profile-synthesis
+  `evidence_source` validation, a wider grounding audit (employers, durations, role claims).

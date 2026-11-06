@@ -120,7 +120,15 @@ def test_job_pages_reach_the_drafting_and_preference_prompts(monkeypatch):
         db.add(company)
         db.commit()
 
-        llm = SequencedLLMProvider([json.dumps({"summary": "Fleet software."}), json.dumps({"flags": []})])
+        answer = {
+            "summary": "Fleet software. They are the market leader.",
+            "summary_evidence": [
+                {"sentence": "Fleet software.", "quote": "JOBONE requirements: Python, PyTorch.", "url": "https://acme.example/"},
+                {"sentence": "They are the market leader.", "quote": "the undisputed market leader", "url": "https://acme.example/"},
+            ],
+            "open_positions": [{"title": "JOBONE requirements"}, {"title": "Invented Role"}],
+        }
+        llm = SequencedLLMProvider([json.dumps(answer), json.dumps({"flags": []})])
         workflow.research_company(db, llm, company)
         research_prompt, preference_prompt = llm.calls[0]["prompt"], llm.calls[1]["prompt"]
         for prompt in (research_prompt, preference_prompt):
@@ -130,7 +138,10 @@ def test_job_pages_reach_the_drafting_and_preference_prompts(monkeypatch):
         draft_application(db, draft_llm, company)
         draft_prompt = draft_llm.calls[0]["prompt"]
         assert "JOBONE" in draft_prompt and "JOBTWO" in draft_prompt
-        assert "RESEARCH SUMMARY: Fleet software." in draft_prompt
+        # only code-verified notes reach the letter (URL corrected to the page the quote is on)
+        assert "- Fleet software. [https://acme.example/jobs/1]" in draft_prompt
+        assert "market leader" not in draft_prompt and "Invented Role" not in draft_prompt
+        assert "- JOBONE requirements [https://acme.example/jobs/1]" in draft_prompt
     finally:
         db.close()
 

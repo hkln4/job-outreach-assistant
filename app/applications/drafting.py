@@ -20,6 +20,7 @@ from urllib.parse import urldefrag
 from sqlalchemy.orm import Session
 
 from app.applications.angles import propose_angles, verify_angles
+from app.applications.claims import check_claims
 from app.applications.draft_review import review_draft
 from app.applications.evidence import (
     EvidenceSelection,
@@ -286,7 +287,14 @@ def draft_application(
             f"COMPANY TEXT:\n{wrap_untrusted(company_text)}"
         ),
     )
+    # Sentence-level evidence: every claim's quote is looked up in its source by code.
+    claim_check = (
+        check_claims(letter["body"], meta["claims"], pages, evidence_items, company.name)
+        if meta.get("claims")
+        else {"not_checked": True}
+    )
     sources, dropped_sources = validate_sources(list(meta.get("sources") or []), pages)
+    sources += [v["source"] for r in claim_check.get("sentences", []) for v in r["supports"] if v["kind"] == "page" and v["source"] not in sources]
     if angle and angle["hook_url"] not in sources:
         sources.append(angle["hook_url"])
     used_ids = [int(i) for i in dict.fromkeys(meta.get("evidence_item_ids") or []) if str(i).isdigit() and int(i) in offered]
@@ -321,6 +329,7 @@ def draft_application(
         "grounding_misses": misses,
         "project_page": project_page,
         "metadata_error": meta.get("metadata_error", ""),
+        "claim_check": claim_check,
     }
 
 
@@ -340,6 +349,7 @@ def _draft_notes(result: dict, selection: EvidenceSelection) -> dict:
         "grounding_misses": result.get("grounding_misses") or {},
         "project_page": result.get("project_page", ""),
         "metadata_error": result.get("metadata_error", ""),
+        "claim_check": result.get("claim_check") or {},
     }
 
 
@@ -514,8 +524,49 @@ def refresh_grounding(db: Session, application: Application) -> None:
     items = items_by_ids(db, [entry["item_id"] for entry in application.evidence or []])
     company_text = company_context_for(application.company, application.job_posting, DRAFT_CONTEXT_CHARS)
     history = list(application.revision_history)
-    history[0] = {**history[0], "grounding_misses": grounding_misses(application.cover_letter_body, _sources_text(profile, items, company_text))}
+    notes = {**history[0], "grounding_misses": grounding_misses(application.cover_letter_body, _sources_text(profile, items, company_text))}
+    if notes.get("claim_check") and not notes["claim_check"].get("not_checked"):
+        notes["claim_check"] = {**notes["claim_check"], "stale": True}  # the text changed since the check
+    history[0] = notes
     application.revision_history = history
+
+
+def letter_core(db: Session, application: Application) -> str:
+    """The letter without the app-written tail (signature block, project page
+    line) - those are the owner's own details, not claims to verify."""
+    identity = owner_identity(db)
+    profile = db.query(Profile).first()
+    language = letter_language(db, profile, application.job_posting) if profile else "tr"
+    body = application.cover_letter_body or ""
+    signature = signature_block(identity, language)
+    if signature and body.rstrip().endswith(signature):
+        body = body.rstrip()[: -len(signature)].rstrip()
+    labels = tuple(f"{label}:" for label in PROJECT_PAGE_LABEL.values())
+    return "\n".join(line for line in body.splitlines() if not line.strip().startswith(labels)).strip()
+
+
+def recheck_claims(db: Session, llm: LLMProvider, application: Application) -> dict:
+    """Run the sentence-level check again on the letter as it is now (after
+    the owner's edits): one metadata call, verified by code."""
+    company = application.company
+    items = items_by_ids(db, [entry["item_id"] for entry in application.evidence or []])
+    pages = list((company.research or {}).get("pages", []))
+    if application.job_posting is not None and application.job_posting.url:
+        pages.append({"url": application.job_posting.url, "kind": "job", "text": application.job_posting.description_text})
+    company_text = company_context_for(company, application.job_posting, DRAFT_CONTEXT_CHARS)
+    body = letter_core(db, application)
+    meta = letter_metadata(
+        llm,
+        subject=application.subject,
+        body=body,
+        context=f"PROFILE EVIDENCE:\n{evidence_prompt_section(items) or 'none'}\n\nCOMPANY TEXT:\n{wrap_untrusted(company_text)}",
+    )
+    result = check_claims(body, meta.get("claims") or [], pages, items, company.name) if meta.get("claims") else {"not_checked": True}
+    history = list(application.revision_history or [{}])
+    history[0] = {**history[0], "claim_check": result}
+    application.revision_history = history
+    db.commit()
+    return result
 
 
 def known_records_text(db: Session, application: Application) -> str:

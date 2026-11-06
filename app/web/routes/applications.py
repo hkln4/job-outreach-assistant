@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 from app.applications.draft_checks import draft_warnings
 from app.applications.draft_review import review_feedback
 from app.applications.draft_review import apply_issue
-from app.applications.drafting import known_records_text, refresh_grounding, regenerate_draft
+from app.applications.drafting import known_records_text, recheck_claims, refresh_grounding, regenerate_draft
 from app.applications.facts import propose_facts
 from app.applications.style import edit_diff, save_example
 from app.applications.follow_ups import draft_follow_up, send_follow_up
@@ -317,6 +317,15 @@ def form_submitted(
     except DuplicateSendError:
         return RedirectResponse(url=f"/applications/{application_id}?duplicate=1", status_code=303)
     return RedirectResponse(url=f"/applications/{application_id}", status_code=303)
+
+
+@router.post("/{application_id}/recheck-claims")
+def recheck(application_id: int, db: Session = Depends(get_db), llm: LLMProvider = Depends(get_draft_llm)):
+    application = _application_or_404(db, application_id)
+    if is_sent(application):
+        return _blocked_redirect(application_id)
+    recheck_claims(db, llm, application)
+    return RedirectResponse(url=f"/applications/{application_id}#draft-checks", status_code=303)
 
 
 @router.post("/{application_id}/good-example")

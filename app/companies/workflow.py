@@ -37,6 +37,10 @@ Report, as JSON:
 1. "summary": what the company actually does - product/service, industry/domain, and any \
 technologies, team, or customer types the text mentions. Detailed enough that the applicant \
 can judge which kind of position to target. 3-6 sentences.
+1b. "summary_evidence": for EACH sentence of the summary, {"sentence": the summary sentence, \
+"quote": the words on the site that state it (copied exactly, character for character), \
+"url": the [url] header of the page the quote is on}. A sentence you can't back with a quote \
+should not be in the summary.
 2. "open_positions": job openings literally listed in the text. For each: "title" as written \
 and "details" (a short quote/paraphrase of requirements/stack if given, else ""). Empty list if none.
 3. "careers": {"has_careers_page": bool (does the text include a careers/jobs section?), \
@@ -62,7 +66,8 @@ what the company does/needs (from the text) with the owner's skills and target r
 in the profile.} If no profile section is given, use null.
 
 Output ONLY valid JSON, this exact shape:
-{"summary": string, "open_positions": [{"title": string, "details": string}], \
+{"summary": string, "summary_evidence": [{"sentence": string, "quote": string, "url": string}], \
+"open_positions": [{"title": string, "details": string}], \
 "careers": {"has_careers_page": bool, "application_form": bool, "external_portal": string | null, \
 "notes": string}, "channels": [string], "emails": [{"email": string, "context": string}], \
 "people": [{"name": string, "role": string, "email": string | null}], \
@@ -70,6 +75,12 @@ Output ONLY valid JSON, this exact shape:
 """
 
 RESEARCH_CONTEXT_CHARS = 40000
+
+
+class _SummaryEvidence(BaseModel):
+    sentence: str
+    quote: str
+    url: str = ""
 
 
 class _Position(BaseModel):
@@ -104,6 +115,7 @@ class _Fit(BaseModel):
 # read defensively below - the schema is the request, not a guarantee.
 class ResearchAnswer(BaseModel):
     summary: str = ""
+    summary_evidence: list[_SummaryEvidence] = []
     open_positions: list[_Position] = []
     careers: _Careers = _Careers()
     channels: list[str] = []
@@ -293,7 +305,10 @@ def research_company(db: Session, llm: LLMProvider, company: Company, force: boo
         # the company page warns when it looks aimed at an AI reader.
         "content_safety": result.get("content_safety"),
         "summary": data.get("summary", ""),
-        "open_positions": data.get("open_positions", []) or [],
+        # Only summary sentences backed by a quote found on a page (by code)
+        # reach later prompts; open positions only when the title is on a page.
+        "summary_verified": verify_summary(data.get("summary_evidence") or [], result["pages"]),
+        "open_positions": verify_positions(data.get("open_positions", []) or [], result["pages"]),
         "careers": {
             "has_careers_page": bool(careers.get("has_careers_page")),
             # The model's guess, kept only as a fallback note - the real
@@ -359,6 +374,29 @@ def _emails_for(company: Company, detected: list[dict], from_llm: list[dict]) ->
             }
         )
     return emails
+
+
+def verify_summary(evidence: list[dict], pages: list[dict]) -> list[dict]:
+    """Summary sentences whose quote is on a fetched page: [{sentence, quote, url}]."""
+    verified = []
+    for entry in evidence:
+        quote = (entry.get("quote") or "").strip()
+        if len(quote.split()) < 2:
+            continue
+        page_url = locate_quote(quote, pages)
+        if page_url and entry.get("sentence"):
+            verified.append({"sentence": entry["sentence"].strip(), "quote": quote, "url": page_url})
+    return verified
+
+
+def verify_positions(positions: list[dict], pages: list[dict]) -> list[dict]:
+    """Each position marked verified (with the page) when its title is on a page."""
+    out = []
+    for position in positions:
+        title = (position.get("title") or "").strip()
+        page_url = locate_quote(title, pages) if title else None
+        out.append({**position, "verified": page_url is not None, "url": page_url or ""})
+    return out
 
 
 def research_company_safe(db: Session, llm: LLMProvider, company: Company, force: bool = False) -> Company:

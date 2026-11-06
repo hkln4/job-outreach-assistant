@@ -59,17 +59,22 @@ def _allocate(needs: list[int], weights: list[float], budget: int) -> list[int]:
     return [int(min(need, weight * low)) for need, weight in zip(needs, weights)]
 
 
-def _header(summary: str, open_positions: list[dict] | None) -> str:
+def _header(summary_verified: list[dict], open_positions: list[dict] | None) -> str:
+    """Research notes for a prompt - only what code verified: summary
+    sentences backed by a quote on a page, and positions whose title is on a
+    page. The model-written summary itself never reaches a later prompt as a
+    fact (the pages below are the source)."""
     lines = []
-    if summary:
-        lines.append(f"RESEARCH SUMMARY: {summary}")
-    if open_positions:
-        lines.append("OPEN POSITIONS (from research):")
-        for position in open_positions:
+    if summary_verified:
+        lines.append("RESEARCH NOTES (each backed by a quote found on the site):")
+        lines += [f"- {entry['sentence']} [{entry['url']}]" for entry in summary_verified]
+    positions = [p for p in open_positions or [] if p.get("verified")]
+    if positions:
+        lines.append("OPEN POSITIONS (titles found on the site):")
+        for position in positions:
             title = (position.get("title") or "").strip()
             details = (position.get("details") or "").strip()
-            if title:
-                lines.append(f"- {title}: {details}" if details else f"- {title}")
+            lines.append(f"- {title}: {details} [{position.get('url', '')}]" if details else f"- {title} [{position.get('url', '')}]")
     return "\n".join(lines)
 
 
@@ -77,13 +82,13 @@ def build_company_context(
     pages: list[dict],
     budget: int,
     *,
-    summary: str = "",
+    summary_verified: list[dict] | None = None,
     open_positions: list[dict] | None = None,
 ) -> str:
     """Pages joined as `[url]\\ntext` blocks within `budget` characters,
     optionally prefixed by the research summary and open positions."""
     parts: list[str] = []
-    header = _header(summary, open_positions)
+    header = _header(summary_verified or [], open_positions)
     if header:
         header = header[: int(budget * HEADER_SHARE)]
         parts.append(header)
@@ -108,7 +113,7 @@ def research_context(research: dict, budget: int, *, with_header: bool = False) 
     return build_company_context(
         research.get("pages") or [],
         budget,
-        summary=research.get("summary", "") if with_header else "",
+        summary_verified=research.get("summary_verified") if with_header else None,
         open_positions=research.get("open_positions") if with_header else None,
     )
 

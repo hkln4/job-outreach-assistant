@@ -52,6 +52,11 @@ def draft_warnings(application: Application) -> list[tuple[str, str]]:
         warnings.append(("draft_check.ungrounded_technologies", ", ".join(misses["technologies"])))
     if notes.get("dropped_angles"):
         warnings.append(("draft_check.dropped_angles", str(notes["dropped_angles"])))
+    claim_check = notes.get("claim_check") or {}
+    for entry in claim_check.get("unsupported") or []:
+        warnings.append((f"draft_check.claim.{entry['reason']}", entry["sentence"]))
+    if claim_check.get("stale"):
+        warnings.append(("draft_check.claim_stale", ""))
     if notes.get("metadata_error"):
         warnings.append(("draft_check.metadata_error", notes["metadata_error"]))
     return warnings

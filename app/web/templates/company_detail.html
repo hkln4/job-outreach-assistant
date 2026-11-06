@@ -114,6 +114,11 @@
     {% if research_usable %}
       {% if company.research.summary %}
         <p>{{ company.research.summary }}</p>
+        {% if company.research.summary_verified is defined %}
+          <details class="hint"><summary>{{ t("company_detail.summary_verified") }} {{ company.research.summary_verified | length }}</summary>
+            <ul>{% for e in company.research.summary_verified %}<li>{{ e.sentence }} — <q>{{ e.quote }}</q> <a href="{{ e.url }}" target="_blank" rel="noopener">↗</a></li>{% endfor %}</ul>
+            <p>{{ t("company_detail.summary_verified_hint") }}</p></details>
+        {% endif %}
       {% endif %}
 
       {% set job_pages = company.research.pages | selectattr("kind", "defined") | selectattr("kind", "equalto", "job") | list %}
@@ -131,7 +136,7 @@
         <h3>{{ t("company_detail.open_positions_title") }} ({{ company.research.open_positions | length }})</h3>
         <ul>
           {% for pos in company.research.open_positions %}
-            <li><strong>{{ pos.title }}</strong>{% if pos.details %} — <span class="muted">{{ pos.details }}</span>{% endif %}</li>
+            <li><strong>{{ pos.title }}</strong>{% if pos.verified is defined and not pos.verified %} <span class="badge badge-soft">{{ t("company_detail.position_unverified") }}</span>{% endif %}{% if pos.details %} — <span class="muted">{{ pos.details }}</span>{% endif %}</li>
           {% endfor %}
         </ul>
       {% endif %}

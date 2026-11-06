@@ -11,6 +11,7 @@ it was given, and anything else it returns is dropped.
 """
 import json
 import logging
+import re
 from dataclasses import dataclass, field
 
 from pydantic import BaseModel
@@ -255,28 +256,91 @@ def items_by_ids(db: Session, ids: list[int], exclude_ids: list[int] | tuple = (
     return [found[i] for i in wanted if i in found]
 
 
+# Claims a model-written framing line may not make unless a fact backs it.
+RISKY_CLAIM_RE = re.compile(
+    r"\b(led|lead|managed|mentored|production|deployed|users?|customers?|clients?|scaled|million|team of|"
+    r"liderlik|yönettim|yönetti|üretimde|kullanıcı|müşteri|ekibe|ekibi)\b",
+    re.IGNORECASE,
+)
+DESCRIPTION_FIELDS = ("one_liner", "problem", "approach", "architecture")
+
+
+def citable_text(item: ProfileItem) -> str:
+    """The parts of a record a letter may cite as fact: what code verified or
+    computed, what the owner wrote, verbatim CV text, and the repo
+    description. Model framing (role angles, talking points, the model's guess
+    at the owner's contribution) is not citable."""
+    extracted = item.extracted or {}
+    owner_fields = set(item.owner_edited_fields or [])
+    parts = [json.dumps(item.facts or {}, ensure_ascii=False)]
+    parts += [f"{r.get('claim', '')} {r.get('quote', '')}" for r in extracted.get("results") or []]
+    parts += [f"{u.get('tech', '')} {u.get('for', '')}" for u in extracted.get("stack_used_for") or []]
+    parts += [str(extracted.get(field, "")) for field in DESCRIPTION_FIELDS]
+    parts += [fact.get("answer", "") for fact in item.owner_facts or []]
+    if "entry_type" in extracted:  # CV / LinkedIn entries are verbatim
+        parts += [extracted.get(k, "") for k in ("title", "organization", "start", "end", "location")] + list(extracted.get("bullets") or [])
+    elif "one_liner" not in extracted:  # v1 records: the four fields are all there is
+        parts.append(json.dumps(extracted, ensure_ascii=False))
+    parts += [json.dumps(extracted.get(field), ensure_ascii=False) for field in owner_fields]
+    return "\n".join(p for p in parts if p)
+
+
+def _framing_ok(text: str, facts_text: str) -> bool:
+    """A model-written framing line enters a prompt only when its numbers and
+    technologies are in the facts and it makes no unbacked risky claim."""
+    from app.applications.grounding import grounding_misses
+
+    misses = grounding_misses(text, facts_text)
+    if misses["numbers"] or misses["technologies"]:
+        return False
+    for match in RISKY_CLAIM_RE.finditer(text):
+        if match.group(0).casefold() not in facts_text.casefold():
+            return False
+    return True
+
+
+def _commit_fact(item: ProfileItem) -> str:
+    owner = (((item.facts or {}).get("activity") or {}).get("owner_commits")) or {}
+    if not owner.get("scanned"):
+        return ""
+    return f"COMMITS (code): the owner authored {owner['by_owner']} of the {owner['scanned']} most recent commits"
+
+
 def _rich_block(item: ProfileItem, role_type: str) -> str:
     extracted = item.extracted or {}
-    lines = [f"WHAT: {extracted.get('one_liner', '')}"]
-    for key in ("problem", "approach"):
-        if extracted.get(key):
-            lines.append(f"{key.upper()}: {extracted[key]}")
+    owner_fields = set(item.owner_edited_fields or [])
+    facts_text = citable_text(item)
+    lines = ["FACTS (citable):"]
+    for key in DESCRIPTION_FIELDS:
+        value = extracted.get(key)
+        if value:
+            value = "; ".join(value) if isinstance(value, list) else value
+            lines.append(f"{key.upper()}: {value}")
     uses = "; ".join(f"{u.get('tech')} - {u.get('for')}" for u in extracted.get("stack_used_for") or [])
     if uses:
         lines.append(f"STACK USED FOR: {uses}")
-    angle = (extracted.get("role_angles") or {}).get(role_type, "")
-    if angle:
-        lines.append(f"ANGLE FOR THIS ROLE ({role_type}): {angle}")
-    if extracted.get("owner_contribution"):
-        lines.append(f"OWNER'S CONTRIBUTION: {extracted['owner_contribution']}")
     for result in extracted.get("results") or []:
         lines.append(f'RESULT: {result.get("claim")} (quote: "{result.get("quote")}")')
-    for point in extracted.get("talking_points") or []:
-        lines.append(f"TALKING POINT: {point}")
     maturity = extracted.get("maturity") or {}
     flags = [key for key in ("tests", "ci", "deployed", "packaged") if maturity.get(key)]
     if flags:
-        lines.append(f"MATURITY: {', '.join(flags)}")
+        lines.append(f"MATURITY (code): {', '.join(flags)}")
+    commit = _commit_fact(item)
+    if commit:
+        lines.append(commit)
+    if "owner_contribution" in owner_fields and extracted.get("owner_contribution"):
+        lines.append(f"OWNER'S CONTRIBUTION (written by the owner): {extracted['owner_contribution']}")
+
+    framing = []
+    angle = (extracted.get("role_angles") or {}).get(role_type, "")
+    if angle and ("role_angles" in owner_fields or _framing_ok(angle, facts_text)):
+        framing.append(f"ANGLE FOR THIS ROLE ({role_type}): {angle}")
+    for point in extracted.get("talking_points") or []:
+        if "talking_points" in owner_fields or _framing_ok(point, facts_text):
+            framing.append(f"TALKING POINT: {point}")
+    if framing:
+        lines.append("MODEL FRAMING (emphasis only - NOT a source; state nothing from it that the FACTS above don't say):")
+        lines += framing
     return "\n".join(lines)
 
 

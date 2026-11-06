@@ -1,49 +1,92 @@
 # Application Outreach Assistant
 
-Personal tool that automates and standardizes job-application outreach: turns a
-curated list of target companies into tailored, human-approved application
-emails, tracks every application, and escalates to individual employees when a
-company doesn't respond. Full spec in [CLAUDE.md](CLAUDE.md).
+Personal tool for job-application outreach to tech companies (primarily Ankara):
+finds companies and job postings, researches each one, writes tailored
+applications and one-page CVs that cite their sources, sends only what you
+approve, tracks every application, and escalates to individual employees when
+a company doesn't respond. Rules and design in [CLAUDE.md](CLAUDE.md); phase
+specs and status in [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## How it works
 
 **Problem:** cold applications to dozens of small tech companies are either
 generic (and ignored) or take an evening each to research and write.
 **Approach:** the app does the reading - your background once, each company's
-site per application - and drafts a letter that cites both sides. You approve
-every send, and the app enforces that anything it says can be traced to a
-source.
+site and each posting per application - and drafts a letter and a CV that cite
+both sides. Code does everything that doesn't need language understanding
+(detection, filtering, checking); the LLM only does what's left, and code
+checks its work. You approve every send.
 
 ```mermaid
 flowchart LR
-    subgraph Profile["Profile (once)"]
-        S[CVs, GitHub repos,<br/>LinkedIn export, sites] -->|one LLM call per item| I[ProfileItem records<br/>coverage ledger]
-        I -->|synthesis| P[Profile summary + skills]
+    subgraph Profile["Profile (once, refreshed on change)"]
+        S[CVs, GitHub repos,<br/>LinkedIn export, sites] -->|facts by code,<br/>one record per item/entry| I[ProfileItem records<br/>coverage ledger]
+        I -->|synthesis + write-up| P[Profile]
+        I -->|bullets you approve| B[Bullet bank +<br/>tech-stack list]
     end
-    subgraph Company["Per company"]
-        X[Technopark directories] -->|homepage screening,<br/>you approve| W
-        W[Company website] -->|fetch + text extraction| R[Research pages]
-        R -->|LLM, fenced as untrusted| F[Summary, openings,<br/>contacts, preference check]
+    subgraph Targets["Companies and postings"]
+        X[Directories, CSV/XLSX,<br/>GitHub orgs] -->|liveness by code,<br/>screening, you approve| W[Company]
+        J[Pasted posting, careers page,<br/>ATS board] -->|gates by code,<br/>fit evaluation| Q[Job posting]
+        W -->|fetch + sanitize;<br/>emails, forms, ATS by code| R[Research pages]
     end
-    I -->|LLM picks ~8 relevant records| E[Profile evidence]
-    P --> D[Draft]
-    E --> D
-    F --> D
-    D -->|sources + evidence ids<br/>validated by the app| V[Review page]
-    V -->|reject + feedback| D
-    V -->|approve - once only| G[Gmail send + CV attachment]
-    G --> T[Lifecycle tracking,<br/>reply check, follow-ups]
+    I -->|pre-rank by code,<br/>LLM picks ~8| E[Evidence]
+    R --> A[Angle: quoted hook +<br/>your record]
+    Q --> A
+    E --> A
+    A --> L[Letter - plain text]
+    L -->|every sentence checked<br/>against its source by code| V[Review page]
+    B -->|assembled by code,<br/>Typst, ATS check| C[Tailored CV]
+    C --> V
+    V -->|reject + feedback| L
+    V -->|approve - once only| G[Gmail send + CV]
+    G --> T[Tracking: bounces, replies,<br/>follow-ups, outcomes]
 ```
 
 FastAPI + Jinja2 UI on localhost, SQLite, a provider-agnostic LLM layer (Claude
-or Gemini - a cheap model for reading, a stronger one for the letters), Gmail
-API for sending.
+or Gemini - a cheap model for reading, a stronger one for anything a company
+reads), Gmail API for sending, Typst for CVs.
+
+## How it keeps the LLM honest
+
+Hallucination is handled by code, not by asking the model nicely. What the app
+enforces:
+
+- **Retrieval is the app's.** The model never browses. Pages are fetched,
+  sanitized (hidden text, invisible characters, instruction-shaped lines) and
+  fenced as untrusted in every prompt.
+- **Ids and URLs are checked.** A source URL that wasn't fetched, or a record
+  id that wasn't offered, is dropped and shown to you.
+- **Quotes are checked.** Repo results, angles, posting-fit reasons,
+  preference flags, reviewer notes and captured facts each carry a quote that
+  must be found in its source; otherwise they're dropped or marked unverified.
+- **Every letter sentence is checked.** A metadata call maps each sentence to
+  the source and the words that state it; code looks the quote up in that page
+  or record. A company claim needs a page quote, a claim about you a record
+  quote; a sentence the model calls "nothing to verify" is still checked when it
+  looks factual (numbers, technologies, the company's name). Unsupported
+  sentences are listed in "check before sending". After you edit the letter the
+  check is marked stale until you re-run it.
+- **Model text is not reused as fact.** The research summary reaches later
+  prompts only sentence by sentence, when each sentence carries a quote found on
+  the site; open positions only when their title is on a page. In profile
+  records, role angles and talking points are labelled "model framing" and only
+  shown to the writer when their numbers and technologies are in the facts and
+  they make no unbacked "led / production / users" claim. Only verified results,
+  code facts, your own words and verbatim CV text count as citable.
+- **Facts are computed, not generated.** Stacks come from manifests and
+  imports, maturity from the file tree, commit share from history; numbers and
+  technologies in letters and CV bullets that aren't in the sources are flagged.
+- **What isn't covered:** there is no measured hallucination rate yet (the test
+  suite uses fake LLMs, so it proves the checks, not model behaviour), and
+  paraphrase is only checked through quotes - a sentence can be supported by a
+  quote yet overstate it. You remain the reviewer.
 
 ## Demo
 
 ![Demo: dashboard, profile, preferences, discovering companies in a technopark directory, adding a company, drafting with profile evidence, rewriting with feedback, approving, a blocked dealbreaker, the applications list and the follow-up queue](docs/demo.gif)
 
-A walk through the real UI, in order:
+Recorded on the v1 UI (before job postings, the CV builder and the newer
+checks). A walk through it, in order:
 
 1. **Dashboard** - the queues that need you.
 2. **Profile and preferences** - your background with its sources, and the
@@ -67,97 +110,61 @@ and the web stubbed out - nothing was sent. How to re-record:
 
 ## Status
 
-The full v1 workflow (CLAUDE.md section 10) is implemented end-to-end, plus two
-things section 11 had deferred - LinkedIn company research and company discovery
-from technopark directories:
+All of v1 plus roadmap phases 0-7 are built (`docs/ROADMAP.md`). By area:
 
-- **Profile**: CV/LinkedIn-export/GitHub/site ingestion, coverage ledger,
-  two-stage synthesis, and an optional owner-written cover letter template that
-  drafts follow the structure/tone of. A GitHub repo with a detailed README is
-  read from the README alone; a brief or missing README means its source files
-  are sampled too. Re-ingesting a source updates its record instead of adding a
-  second one (and a failed re-run never replaces a good record). Once
-  synthesized, the page shows a clean summary/skills/roles view; ingestion
-  tooling collapses into "Manage sources."
-- **Preferences**: hard/soft constraints, evidence-first checker. A hard match
-  blocks drafting until you confirm it. The same page sets the letter language
-  (Turkish, English, or no preference - then the cover letter template's
-  language, else Turkish).
-- **Companies**: adding one with a site auto-runs research - fetches home +
-  careers/about/contact pages (plus a few individual job postings), writes a
-  short AI summary, runs the preference check, picks up the company's LinkedIn
-  page from their own social links, and auto-fills the contact email HR-first if
-  it's on the site (never overwriting one you entered). There's also a **bulk
-  add**: paste a whole list, one company per line in whatever loose format it's
-  already in (`=`, `|`, `;`, comma or tab), preview what was parsed, then add
-  them in one go with per-row status.
-- **Dashboard**: the single place applications get started and reviewed - six
-  action queues (needs your review / ready to draft / needs research / blocked
-  by a preference match / awaiting reply / no reply yet), each with its action
-  inline.
-- **Company page**: applications first (with a one-line "you've contacted them
-  before" note and a small expander to start another draft), then website
-  research, then the LinkedIn card, then one table of people worth contacting
-  that merges what the site and LinkedIn turned up - nothing becomes a `Contact`
-  until you add it.
-- **Profile evidence**: for each draft, a small LLM call ranks your analyzed
-  background records (repos, CVs, LinkedIn export, sites) against the company and
-  passes the ~8 most relevant ones into the drafting prompt, so the letter names
-  real projects instead of paraphrasing your summary. Ranking by meaning rather
-  than keywords matters here: company sites are mostly Turkish, records are
-  English. The app only offers ids it chose, drops any others, always keeps a CV
-  record, and reuses the pick on regenerate unless you exclude a record ("don't
-  use in this draft") on the review page, which shows each record and whether
-  the letter used it.
-- **Discover**: technopark directories -> screened candidates -> the ones you
-  approve join your company list. See [Discover companies](#discover-companies).
-- **Drafting**: written by a stronger model than the reading tasks
-  (`ANTHROPIC_DRAFT_MODEL`, Sonnet by default) - the cheap model's Turkish read
-  stiff. The letter first settles the position, then what the company actually
-  does, then which of your experiences and projects are genuinely similar, and
-  talks about the company in plain words instead of repeating its product names.
-  Evidence Rule (every company claim sourced), an "AI notes" panel
-  explaining the company fit, which of your projects/skills matched, and the
-  position+CV recommendation. Draft renders as an email (To/Subject/Body),
-  editable in place. CV attachment is resolved case/whitespace-insensitively
-  against your CV variants, with a visible warning + manual override if nothing
-  matched (a CV must always be attached - see CLAUDE.md section 9). Drafting is
-  refused outright when research came back empty, so the model is never asked to
-  write about a blank page. The model is asked for its answer through the provider's native
-  structured-output mode (a JSON schema built from the same Pydantic model), the
-  answer is still schema-validated, and any
-  source URL that isn't one of the pages research actually fetched is removed
-  and shown to you.
-- **Review loop**: green Approve / red Reject side by side; Reject opens a
-  compact chat-style feedback box that regenerates the draft via AI. Approve is
-  disabled until a recipient email and a CV are both resolved, and editing the
-  draft without saving raises an "unsaved changes" badge that blocks the send
-  rather than quietly mailing the older text. A draft you started by mistake can
-  be discarded (before sending only - sent applications are kept as history).
-  A "check before sending" box flags what to look at - length off target, a
-  stock cover-letter phrase, removed sources, personal claims the model couldn't
-  back - without blocking the send. A second, cheap model call that didn't write
-  the draft reviews it against the same company text and profile records and
-  adds its notes there (unsupported claims, generic phrases, language, length,
-  a weak company reason, irrelevant projects), each quoting the draft. A note
-  whose quote isn't actually in the draft is dropped. "Rewrite with these notes"
-  sends them through the normal reject/regenerate path. Turn it off with
-  `DRAFT_REVIEW_ENABLED=false`.
-- **LinkedIn research** (optional, off by default): per company, how many people
-  LinkedIn lists, what they do, whether the company still posts, what it lists
-  as open, and who is worth contacting. See
+- **Profile** (`/profile`): CV / LinkedIn export / GitHub / site ingestion with a
+  coverage ledger. CVs and LinkedIn exports become one record per role, project
+  or education entry with the bullet text verbatim. GitHub repos get facts
+  computed by code (dependencies from manifests, tests, CI, deployment files,
+  your share of commits), code the app picks and the model only ranks by path,
+  and a rich record written by the draft model and verified by code. "Check for
+  changes" makes no LLM call; re-analysis of a changed repo is shown as a diff
+  and never overwrites what you edited. Each record has questions only you can
+  answer; your answers count as evidence. Hierarchical synthesis (no record is
+  ever cut off) and a long, editable "about me" write-up.
+- **Preferences**: hard/soft constraints checked against every company and
+  posting, keyword pre-screen by code, evidence on the page it's actually on.
+  Letter language and your identity block (read from your CV; type only to
+  override) are set here.
+- **Companies**: manual and bulk add; research fetches home, careers, about,
+  contact and job pages, finds emails (footer, `mailto:`, Cloudflare,
+  `[at]`), forms and ATS boards in the raw HTML, and reuses the previous AI
+  summary when the site text hasn't changed.
+- **Discover** (`/discovery`): technopark directories, CSV/XLSX lists, JSON
+  endpoints of JavaScript-only directories and GitHub organizations; a no-LLM
+  liveness check skips dead sites before any screening call. See
+  [Discover companies](#discover-companies).
+- **Job postings** (`/postings`): paste a URL or text (LinkedIn links through
+  the LinkedIn MCP rule below), read ATS boards (Greenhouse, Lever, Ashby,
+  SmartRecruiters) with a Turkey location filter, or let the careers-page watch
+  find new ones (robots.txt respected, LLM only when a page changed). Gates by
+  code (location, experience, language), fit with quotes, legitimacy flags,
+  expiry check before drafting. Board discovery uses Tavily search, only to find
+  board slugs.
+- **Drafting and review**: angle (a quoted company hook + one of your records)
+  -> the letter as plain text on the draft model -> a metadata call, with style
+  rules and examples, recipient-aware tone and an app-written signature and
+  portfolio link. "Check before sending" lists unsupported sentences, numbers
+  and technologies not in the sources, stock phrases and length; a reviewer
+  pass on the draft model suggests edits you apply one by one. Facts you state
+  in feedback or edits are proposed for your profile.
+- **CV builder** (`/cv-builder`): projects suggested from your records, 3-6
+  bullets each that you approve (numbers checked against the record), a tech
+  list with where each skill is used, and a one-page CV assembled by code for
+  each application in your current CV's layout (Lato, Typst). Education and
+  experience are copied verbatim; missing posting keywords are reported, never
+  added. The PDF's text layer is checked like an ATS would read it.
+- **Sending and tracking**: Gmail with validation, dedup and a send delay, a
+  snapshot of the exact CV attached, protection against a double send on a
+  timeout; bounces, auto-replies and replies told apart, with "possible reply"
+  notes from the company's domain; same-thread follow-ups; employee escalation;
+  form applications you submit yourself and then track.
+- **Outcomes and cost**: `/funnel` (reply and interview rates, time to reply,
+  by source / channel / CV / language / angle), `/costs` (every LLM call with
+  tokens and estimated cost), `/style` (standing writing rules and examples).
+- **LinkedIn research** (optional, off by default) - see
   [LinkedIn research](#linkedin-research-optional).
-- Gmail send with address validation, dedup and a send delay; reply checking
-  (manual, bulk, and a quiet auto-check on page load); same-thread follow-ups;
-  employee-contact escalation.
-- EN/TR interface (cookie-based toggle), loading spinners on every
-  LLM-triggering action so nothing looks frozen mid-request. One control scale
-  across pages (36 px buttons/inputs, 28 px inside tables), no sideways scrolling
-  down to phone width, and pages keep their scroll position after an action.
-- Roadmap phases 0-4 built (see `docs/ROADMAP.md`): LLM cost log (`/costs`), footer/obfuscated email and form/ATS detection from raw HTML, priority-budgeted company context, bounce / auto-reply handling, double-send protection, sent-CV snapshots, hierarchical synthesis, editable profile records; deep repo records (code-computed facts, verified quotes, change detection with diffed re-analysis), per-entry CV/LinkedIn records, profile write-up; no-LLM liveness check and new discovery sources (CSV/XLSX, JSON endpoints, GitHub orgs); job postings (`/postings`: gates, fit, ATS boards with Turkey filter, careers-page watch, search-based board discovery); letter quality (angles, plain-text prose, app-written signature, style memory, reviewer edits, grounding audit, fact capture).
-- Phase 5: bullet bank, evidence-backed tech list and a Typst CV builder in the owner's FlowCV layout (`/cv-builder`) with an ATS text-layer check. Phase 6: form / posting detection and form-channel tracking (no form filling). Phase 7: outcomes archive and funnel (`/funnel`).
-- Search for ATS boards goes through Tavily (`SEARCH_API_PROVIDER=tavily`, off by default).
-- 359 passing tests (`tests/`), including route-level end-to-end flow tests.
+- EN/TR interface; 363 passing tests (`tests/`).
 
 **To actually use it**, pick a provider in `.env` (`LLM_PROVIDER=gemini` or
 `claude`) and set that provider's API key - everything that calls the LLM
@@ -165,7 +172,10 @@ from technopark directories:
 a key those routes fail on a friendly error page rather than doing anything
 silently wrong. Gmail send/reply-check additionally need `credentials.json`
 (OAuth client, see CLAUDE.md section 5) and `GMAIL_SENDER_ADDRESS`; `token.json`
-is created on first send. **Publish the OAuth app** (Google Cloud Console ->
+is created on first send. ATS board search needs a Tavily key
+(`SEARCH_API_ENABLED=true`, `SEARCH_API_KEY`, free credits at app.tavily.com).
+CV rendering needs nothing beyond `requirements.txt` (the Typst compiler ships
+in the `typst` wheel, Lato is bundled). **Publish the OAuth app** (Google Cloud Console ->
 OAuth consent screen -> "In production"): while it is in "Testing", Google
 expires the token after 7 days and sending and reply checks stop with
 `invalid_grant` - delete `token.json` and approve again to recover.
@@ -198,12 +208,13 @@ Tables are created automatically on first startup (`data/app.db`); schema change
 to existing tables are applied as safe, additive `ALTER TABLE` migrations in
 `app/db.py` - existing data is never touched or rebuilt.
 
-Suggested first run: **CVs** (add at least one variant) -> **Profile** (upload a
-CV/LinkedIn export, ingest GitHub repos, synthesize, review/edit, optionally
-paste a cover letter template) -> **Preferences** (add constraints) ->
-**Discover** (import a technopark directory, screen it, approve the good fits)
-or **Companies** (add one with its website - research runs automatically) ->
-**Dashboard** (start the application, review the draft, approve & send).
+Suggested first run: **CVs** (add at least one variant) -> **Profile** (ingest
+your CV, GitHub repos and portfolio, answer the record questions, synthesize,
+review) -> **Preferences** (constraints, letter language, portfolio URL) ->
+**CV builder** (suggest projects, approve bullets, import your skills, render a
+sample and approve the template once) -> **Discover** / **Companies** /
+**Postings** -> **Dashboard** (start an application, review, tailor a CV,
+approve & send).
 
 ## Discover companies
 
@@ -216,10 +227,13 @@ approve one by one:
    Teknokent (sector categories -> company pages with website and email),
    OSTİM Teknopark (company pages with website and email) and Ankara
    Üniversitesi Teknokent (its sitemap -> company pages) - about 1,500
-   companies together. Gazi Teknopark isn't included: its list lives inside a
-   JavaScript app. Any other directory page can be added by URL with its city
-   and technopark name; its text and links are read by the LLM and a website
-   is only kept if the page actually links to it.
+   companies together. Any other directory page can be added by URL with its
+   city and technopark name; its text and links are read by the LLM and a
+   website is only kept if the page actually links to it. A JavaScript-only
+   directory (e.g. Gazi Teknopark) is added by the JSON endpoint you see in the
+   browser's network tab, with a field mapping - read by code. A CSV/XLSX list
+   you downloaded (e.g. the ministry's Ar-Ge merkezi list) is imported with a
+   column mapping, and GitHub organizations can be listed by location.
    Companies already in your list are recognised even under a legal name or a
    sister domain ("3DTİM ELEKTRONİK A.Ş." / beevision.ai = your BeeVision),
    hidden as "already in my list", and their empty city/technopark/email
@@ -227,12 +241,17 @@ approve one by one:
    A candidate the directory lists without a website gets a "Search on Google"
    link (brand or listed name + technopark); paste the site you find and it
    goes back into the screening queue.
-2. **Screen homepages** - one small LLM call per company on the main model:
+2. **Check liveness** (no LLM): DNS, HTTP status, parked or placeholder pages,
+   and how recent the newest copyright year, sitemap date or news post is -
+   ALIVE / STALE / DEAD / UNKNOWN, with the evidence. Dead sites are skipped by
+   screening unless you include them.
+3. **Screen homepages** - preference keywords are matched by code first, then
+   one small LLM call per company:
    what it does in one sentence, how well it fits your target roles, whether
    the site has a careers page, and any preference conflict (e.g. defence) with
    the words on the site that triggered it. Runs one company per page refresh;
    leave the page to stop, come back to continue.
-3. **Approve or reject** from a table sorted by fit. Approved companies join
+4. **Approve or reject** from a table sorted by fit. Approved companies join
    your list under their brand name (the directory's legal name goes into the
    notes), tagged with city and technopark, and wait in the dashboard's "needs
    research" queue - no research call is spent until you get to them.
@@ -263,7 +282,8 @@ that re-reads just their social links - no LLM, no LinkedIn traffic.
 LinkedIn's terms forbid and which can get an account restricted. That is why the
 feature is opt-in, runs one company per click (never on add, never in bulk), and
 only ever reads company pages - it does not message anyone or send connection
-requests.
+requests. With the flag on, a LinkedIn job link pasted on the Postings page is
+read through the same server and account, one posting per click.
 
 ```bash
 # 1. install uv (provides uvx): https://docs.astral.sh/uv/getting-started/installation/
@@ -313,6 +333,10 @@ and what it guards against:
   reader. Website and LinkedIn text is also fenced as untrusted in every prompt,
   and the model is told never to follow instructions inside it. The app, not the
   model, decides which sources and profile records count.
+- **Forms are never filled or submitted by the app.** Detected forms are shown
+  with their fields; you apply yourself and mark it submitted.
+- **External providers are opt-in.** LinkedIn research and Tavily search are off
+  until enabled in `.env`; search only finds ATS board slugs, never postings.
 - **Secrets stay local.** `.env`, `credentials.json` (Gmail OAuth client) and
   `token.json` (your Gmail token) are git-ignored and never leave the machine
   except to Google/the LLM provider.
@@ -331,41 +355,43 @@ source .venv/bin/activate
 python -m pytest tests/ -v
 ```
 
-LLM-dependent logic is tested against `tests/fakes.py::FakeLLMProvider` /
-`SequencedLLMProvider` (canned JSON responses) - no real API key needed to run
-the suite. Gmail send is monkeypatched; it is never called for real during
-`pytest`. The LinkedIn MCP subprocess is never spawned - `linkedin_fetch` is
-faked at the same seam as the website fetch. `tests/conftest.py` points the app
-at a throwaway SQLite file before any app module is imported and forces the
-LinkedIn flag off, so the suite never touches the real `data/app.db` and never
-depends on your own `.env`.
+LLM-dependent logic is tested against `tests/fakes.py` (`FakeLLMProvider`,
+`SequencedLLMProvider`, and `RoutedLLMProvider`, which answers by which prompt
+is asking) - no real API key needed. `tests/conftest.py` points the app at a
+throwaway SQLite file and temp directories before any app module is imported,
+forces the LinkedIn and reviewer flags off, refuses any real Gmail or LLM call
+(a test must fake the seam it uses), so the suite never touches `data/`, never
+sends anything and never depends on your own `.env`. HTTP fetches, the LinkedIn
+MCP subprocess, ATS boards and the search API are faked at their module seams;
+CV rendering runs the real Typst compiler and checks the real PDF.
 
 ## Layout
 
 ```
 app/
   config.py            settings from .env (pydantic-settings)
-  db.py                 SQLAlchemy engine/session, init_db(), column migrations
+  db.py                 SQLAlchemy engine/session, init_db(), additive column migrations
   models.py              entities + state machines (CLAUDE.md sections 6-7)
-  main.py                 FastAPI app entrypoint, onboarding gate, error handlers
-  llm/                    provider-agnostic LLM interface, Gemini + Claude (section 8)
-  profile_builder/        CV/LinkedIn/GitHub/site ingestion, coverage ledger, synthesis
-  preferences/             hard/soft constraint checker (section 4)
-  companies/                site fetch, research workflow, bulk-list parsing,
-                             LinkedIn fetch + research (sections 5, 9)
-  discovery/                 technopark directory readers, homepage screening,
-                               candidate import/approval
-  applications/               drafting, profile-evidence retrieval, draft checks,
-                               CV resolution, review/approve/reject,
-                               follow-ups, reply check, escalation (section 5)
-  email_send/                  Gmail OAuth2 send + reply check (sections 5, 9)
-  web/                           FastAPI routes + Jinja2 templates + i18n + a
-                                  little JS (spinners, bulk add, unsaved-draft guard,
-                                  in-place discovery decisions, scroll restore)
-scripts/
-  init_db.py            manual DB init
-  gmail_smoke_test.py    manual OAuth + send verification
-  send_test_email.py      send a real test mail (for the reply-check flow)
-  demo/                    throwaway DB + stub server used to record the demo GIF
-tests/                 pytest suite (359 tests)
+  main.py                 FastAPI app entrypoint, onboarding gate, cross-site guard
+  llm/                    provider-agnostic interface, Gemini + Claude, call log + costs
+  profile_builder/        ingestion (CV/LinkedIn entries, GitHub, sites), repo facts,
+                           code-reading plan, rich repo records, change detection,
+                           coverage ledger, synthesis, write-up
+  preferences/             hard/soft checker, keyword pre-screen
+  companies/                fetch, sanitizer, email extraction, budgeted context,
+                             research workflow, bulk parsing, LinkedIn research
+  channels/                  form / ATS / portal detection, registrable domains
+  discovery/                 directory readers, CSV/XLSX/JSON/GitHub sources,
+                              liveness check, screening, approval
+  postings/                  intake, gates, fit, ATS boards, careers watch, search
+  applications/              evidence, angles, letter + sentence checks, grounding,
+                              style, signature, reviewer, facts, review/send,
+                              reply check, follow-ups, escalation, outcomes
+  cv_builder/                bullet bank, tech list, assembly, Typst template + fonts,
+                              ATS check, consistency check
+  email_send/                Gmail OAuth2: send, thread classification, searches
+  web/                       routes + Jinja2 templates + i18n + a little JS
+scripts/                     DB init, Gmail smoke tests, demo recorder
+docs/ROADMAP.md              phase specs and status
+tests/                       pytest suite (363 tests)
 ```

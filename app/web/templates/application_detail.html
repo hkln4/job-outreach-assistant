@@ -76,6 +76,10 @@
       {% endfor %}
     </ul>
     {% endif %}
+    {% set cc = (application.revision_history or [{}])[0].claim_check or {} %}
+    {% if application.state.value == "PENDING_APPROVAL" and (cc.stale or cc.not_checked) %}
+    <form method="post" action="/applications/{{ application.id }}/recheck-claims" data-loading-text="{{ t('loading.checking') }}"><button type="submit" class="secondary">{{ t("draft_check.recheck") }}</button></form>
+    {% endif %}
     {% if review_issues %}
     <p><strong>{{ t("draft_review.title") }}</strong>{% if draft_review.overall %} <span class="muted">{{ draft_review.overall }}</span>{% endif %}</p>
     <ul class="draft-review">
