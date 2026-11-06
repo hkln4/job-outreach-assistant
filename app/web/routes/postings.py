@@ -18,6 +18,7 @@ from app.models import AtsBoard, Company, JobPosting, PostingStatus, Preference
 from app.postings.ats import SUPPORTED_PROVIDERS, boards_from_research, import_board_postings, read_board
 from app.postings.careers_watch import watch_all
 from app.postings.evaluation import evaluate_fit
+from app.postings.gates import is_relevant, owner_targets, role_gate
 from app.postings.search import SearchNotConfigured, discover_boards
 from app.postings.service import (
     add_posting,
@@ -45,22 +46,30 @@ def _posting_or_404(db: Session, posting_id: int) -> JobPosting:
 
 
 @router.get("")
-def postings_index(request: Request, status: str = "open", error: str = "", watch: str = "", db: Session = Depends(get_db)):
+def postings_index(request: Request, status: str = "open", error: str = "", watch: str = "", show_all: int = 0, db: Session = Depends(get_db)):
+    """Relevant postings first; ones the role gate rejected and weak fits are
+    folded away (never deleted)."""
     query = db.query(JobPosting)
     if status == "open":
         query = query.filter(JobPosting.status.in_([PostingStatus.NEW, PostingStatus.SHORTLISTED]))
     elif status in PostingStatus.__members__:
         query = query.filter(JobPosting.status == PostingStatus[status])
-    postings = sorted(
+    everything = sorted(
         query.all(),
         key=lambda p: (VERDICT_ORDER.get((p.fit or {}).get("verdict", "unknown"), 2), -(p.id or 0)),
     )
+    def hidden(p: JobPosting) -> bool:
+        return not is_relevant(p.gates or {}) or (p.fit or {}).get("verdict") in ("weak", "blocked")
+    postings = everything if show_all else [p for p in everything if not hidden(p)]
+    hidden_count = len(everything) - len(postings)
     return render(
         templates,
         request,
         "postings.html",
         {
             "postings": postings,
+            "hidden_count": hidden_count,
+            "show_all": bool(show_all),
             "filter_status": status,
             "statuses": list(PostingStatus),
             "error": error,
@@ -82,6 +91,19 @@ def create_posting(
     except ValueError as exc:
         return RedirectResponse(url=f"/postings?error={quote(str(exc)[:300])}", status_code=303)
     return RedirectResponse(url=f"/postings/{posting.id}", status_code=303)
+
+
+@router.post("/dismiss-irrelevant")
+def dismiss_irrelevant(db: Session = Depends(get_db)):
+    """One click: every open posting the role gate rejects (or whose fit was
+    weak / blocked) -> DISMISSED. The owner triggers it; nothing is deleted."""
+    for posting in db.query(JobPosting).filter(JobPosting.status.in_([PostingStatus.NEW, PostingStatus.SHORTLISTED])).all():
+        targets, skills = owner_targets(db)
+        posting.gates = {**(posting.gates or {}), "role": role_gate(posting.title, posting.description_text, targets, skills)}
+        if not is_relevant(posting.gates) or (posting.fit or {}).get("verdict") in ("weak", "blocked"):
+            posting.status = PostingStatus.DISMISSED
+    db.commit()
+    return RedirectResponse(url="/postings", status_code=303)
 
 
 @router.get("/boards")

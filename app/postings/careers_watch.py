@@ -23,7 +23,7 @@ from app.llm.call_log import llm_context, set_llm_ids
 from app.llm.json_utils import parse_json_object
 from app.llm.untrusted import UNTRUSTED_RULE, wrap_untrusted
 from app.models import Company, CompanyState, JobPosting, PostingStatus
-from app.postings.gates import detect_language, run_gates
+from app.postings.gates import detect_language, owner_targets, role_gate, run_gates
 from app.postings.intake import content_hash, find_existing, normalize_posting_url
 
 LIST_SYSTEM_PROMPT = """List the job postings on this careers page. For each: "title" as written, \
@@ -116,7 +116,10 @@ def watch_company(db: Session, llm: LLMProvider, company: Company, client: httpx
         if link.startswith("http") and _same_site(link, url) and link not in links:
             links.append(link)
     new = 0
+    targets, skills = owner_targets(db)
     for listed in _list_postings(llm, text, links):
+        if role_gate(listed["title"], listed["details"], targets, skills)["result"] == "reject":
+            continue  # not the owner's kind of job
         posting_url = listed["url"] if listed["url"] in links else ""
         description = f"{listed['title']}\n{listed['details']}".strip()
         digest_posting = content_hash(description)
@@ -136,7 +139,7 @@ def watch_company(db: Session, llm: LLMProvider, company: Company, client: httpx
             status=PostingStatus.NEW,
             extra={"parsed": False, "found_on": url},
         )
-        posting.gates = run_gates(posting.title, "", description)
+        posting.gates = run_gates(posting.title, "", description, targets, skills)
         db.add(posting)
         new += 1
     watch["status"] = "first" if previous is None else "changed"

@@ -16,6 +16,7 @@ from app.applications.draft_review import review_feedback
 from app.applications.draft_review import apply_issue
 from app.applications.drafting import known_records_text, recheck_claims, refresh_grounding, regenerate_draft
 from app.applications.facts import propose_facts
+from app.cv_builder.service import approve as cv_approve
 from app.applications.style import edit_diff, save_example
 from app.applications.follow_ups import draft_follow_up, send_follow_up
 from app.applications.reply_check import (
@@ -179,9 +180,23 @@ def set_cv(application_id: int, cv_id: str = Form(""), db: Session = Depends(get
 
 
 @router.post("/{application_id}/approve")
-def approve(application_id: int, force: str = Form(""), db: Session = Depends(get_db)):
+def approve(application_id: int, force: str = Form(""), attach: str = Form(""), db: Session = Depends(get_db)):
     application = _application_or_404(db, application_id)
     to = _resolve_recipient(db, application)
+    # Sending with the tailored CV chosen is the owner approving that CV.
+    if attach.startswith("generated:"):
+        generated = db.get(GeneratedCV, int(attach.split(":", 1)[1]))
+        if generated is None or not (generated.ats_report or {}).get("passed"):
+            return RedirectResponse(url=f"/applications/{application_id}?blocked=1", status_code=303)
+        if generated.status != "approved":
+            try:
+                cv_approve(db, generated)
+            except ValueError:
+                return RedirectResponse(url=f"/cv-builder/cvs/{generated.id}?error=template", status_code=303)
+    elif attach.startswith("cv:"):
+        application.generated_cv_id = None
+        application.cv_id = int(attach.split(":", 1)[1])
+        db.commit()
     try:
         approve_and_send(db, application, to, allow_duplicate=bool(force))
     except AlreadySentError:

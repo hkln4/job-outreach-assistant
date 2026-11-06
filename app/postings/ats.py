@@ -22,7 +22,7 @@ from sqlalchemy.orm import Session
 from app.companies.fetch import BROWSER_HEADERS
 from app.companies.sanitize import SanitizeReport, sanitize_text
 from app.models import AtsBoard, JobPosting, PostingStatus
-from app.postings.gates import detect_language, location_gate, run_gates
+from app.postings.gates import detect_language, location_gate, owner_targets, role_gate, run_gates
 from app.postings.intake import content_hash, find_existing, normalize_posting_url
 
 SUPPORTED_PROVIDERS = ("greenhouse", "lever", "ashby", "smartrecruiters")
@@ -147,8 +147,12 @@ def read_board(provider: str, token: str, client: httpx.Client | None = None) ->
 def import_board_postings(db: Session, board: AtsBoard, postings: list[dict], include_ids: set[str] | None = None) -> dict:
     """Accepted postings (and the ambiguous ones the owner picked) become
     JobPostings from the board's own fields. Returns counts."""
-    counts = {"imported": 0, "already_known": 0, "ambiguous": 0, "rejected": 0}
+    counts = {"imported": 0, "already_known": 0, "ambiguous": 0, "rejected": 0, "not_relevant": 0}
+    targets, skills = owner_targets(db)
     for job in postings:
+        if role_gate(job["title"], job["description"], targets, skills)["result"] == "reject":
+            counts["not_relevant"] += 1  # sales, finance, HR ... never imported
+            continue
         result = job["location_gate"]["result"]
         if result == "reject":
             counts["rejected"] += 1
@@ -181,7 +185,7 @@ def import_board_postings(db: Session, board: AtsBoard, postings: list[dict], in
             content_safety=report.to_dict(),
             extra={"ats": {"provider": board.provider, "token": board.token, "id": job["external_id"]}, "parsed": False},
         )
-        posting.gates = run_gates(posting.title, posting.location, posting.description_text)
+        posting.gates = run_gates(posting.title, posting.location, posting.description_text, targets, skills)
         db.add(posting)
         counts["imported"] += 1
     board.last_checked_at = datetime.now(timezone.utc)

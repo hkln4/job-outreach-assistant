@@ -148,8 +148,11 @@ All of v1 plus roadmap phases 0-7 are built (`docs/ROADMAP.md`). By area:
   the LinkedIn MCP rule below), read ATS boards (Greenhouse, Lever, Ashby,
   SmartRecruiters) with a Turkey location filter, or let the careers-page watch
   find new ones (robots.txt respected, LLM only when a page changed). Gates by
-  code (location, experience, language), fit with quotes, legitimacy flags,
-  expiry check before drafting. Board discovery uses Tavily search, only to find
+  code (role relevance, location, experience, language), fit with quotes,
+  legitimacy flags, expiry check before drafting. Clearly unrelated roles
+  (sales, finance, HR ...) are never imported from boards or careers pages;
+  anything else that fails the role gate or fits weakly is folded away on the
+  page, one click dismisses them all. Board discovery uses Tavily search, only to find
   board slugs.
 - **Drafting and review**: angle (a quoted company hook + one of your records)
   -> the letter as plain text on the draft model -> a metadata call, with style
@@ -158,10 +161,17 @@ All of v1 plus roadmap phases 0-7 are built (`docs/ROADMAP.md`). By area:
   and technologies not in the sources, stock phrases and length; a reviewer
   pass on the draft model suggests edits you apply one by one. Facts you state
   in feedback or edits are proposed for your profile.
-- **CV builder** (`/cv-builder`): projects suggested from your records, 3-6
-  bullets each that you approve (numbers checked against the record), a tech
-  list with where each skill is used, and a one-page CV assembled by code for
-  each application in your current CV's layout (Lato, Typst). Education and
+- **CV builder** (`/cv-builder`): one page - projects and bullets on the left,
+  the CV re-rendered live on the right. The best few projects are on by default,
+  small ones stay folded and off. A project's priority sets how many bullets it
+  gets (high 3, normal 2, low 1), written broad rather than one per detail.
+  A bullet can only be approved once it passes code checks: ATS rules (action
+  verb first, no first person, no symbols, length) and grounding (numbers and
+  technologies must be in the record). Skills are split into general ones that
+  go on every CV and specific tools that are added only when a posting asks for
+  them. A tailored CV is made by code automatically when a draft is created
+  (once the template is approved and there are approved bullets); you can adjust
+  it with a live preview, and sending with it attached approves it. Education and
   experience are copied verbatim; missing posting keywords are reported, never
   added. The PDF's text layer is checked like an ATS would read it.
 - **Sending and tracking**: Gmail with validation, dedup and a send delay, a
@@ -170,8 +180,12 @@ All of v1 plus roadmap phases 0-7 are built (`docs/ROADMAP.md`). By area:
   notes from the company's domain; same-thread follow-ups; employee escalation;
   form applications you submit yourself and then track.
 - **Outcomes and cost**: `/funnel` (reply and interview rates, time to reply,
-  by source / channel / CV / language / angle), `/costs` (every LLM call with
-  tokens and estimated cost), `/style` (standing writing rules and examples).
+  by source / channel / CV / language / angle, plus a cost line linking to
+  every LLM call). Writing-style rules and examples live under **Settings**.
+- **Profile**: deleted repos stay hidden from the GitHub list (restorable there);
+  re-importing skips repos that haven't changed and re-analyzes changed ones as a
+  reviewable diff. The page lists what to do next. Deletes and row actions on
+  every page happen in place.
 - **LinkedIn research** (optional, off by default) - see
   [LinkedIn research](#linkedin-research-optional).
 - EN/TR interface; 367 passing tests (`tests/`).
@@ -220,9 +234,8 @@ to existing tables are applied as safe, additive `ALTER TABLE` migrations in
 
 Suggested first run: **CVs** (add at least one variant) -> **Profile** (ingest
 your CV, GitHub repos and portfolio, answer the record questions, synthesize,
-review) -> **Preferences** (constraints, letter language, portfolio URL) ->
-**CV builder** (suggest projects, approve bullets, import your skills, render a
-sample and approve the template once) -> **Discover** / **Companies** /
+review) -> **Settings** (constraints, letter language, portfolio URL) ->
+**CV** (approve bullets, check skills, approve the template once) -> **Discover** / **Companies** /
 **Postings** -> **Dashboard** (start an application, review, tailor a CV,
 approve & send).
 

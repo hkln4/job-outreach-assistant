@@ -419,6 +419,9 @@ def create_draft_application(
     db.add(application)
     db.commit()
     db.refresh(application)
+    from app.cv_builder.service import auto_tailor  # local: cv_builder imports drafting helpers
+
+    auto_tailor(db, application)
     return application
 
 

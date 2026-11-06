@@ -139,21 +139,13 @@
         <div class="email-meta-row"><span class="email-meta-label">{{ t("application_detail.field.subject") }}</span>{{ application.subject }}</div>
         <div class="email-meta-row"><span class="email-meta-label">{{ t("application_detail.field.attachment") }}</span>
           {% if application.state.value == "PENDING_APPROVAL" %}
-            <form method="post" action="/applications/{{ application.id }}/cv" class="cv-picker">
-              <select name="cv_id" onchange="this.form.submit()">
-                <option value="">{{ t("application_detail.no_cv_option") }}</option>
-                {% for cv in cvs %}
-                  <option value="{{ cv.id }}" {% if application.cv_id == cv.id %}selected{% endif %}>{{ cv.name }}</option>
-                {% endfor %}
-              </select>
-            </form>
-            {% if generated_cv %}
-              <a href="/cv-builder/cvs/{{ generated_cv.id }}"><span class="badge {{ 'badge-state' if generated_cv.status == 'approved' else 'badge-soft' }}">{{ t("cvb.tailored_cv") }} #{{ generated_cv.id }} · {{ generated_cv.status }}</span></a>
-            {% endif %}
-            <form method="post" action="/cv-builder/for-application/{{ application.id }}" style="display:inline"><button type="submit" class="secondary">{{ t("cvb.tailor") }}</button></form>
-            {% if not application.cv and not (generated_cv and generated_cv.status == 'approved') %}
-              <span class="badge badge-hard">{{ t("application_detail.no_cv_attached") }}</span>
-            {% endif %}
+            {% set gen_ok = generated_cv and (generated_cv.ats_report or {}).passed %}
+            <select name="attach" form="approve-form" class="cv-picker">
+              {% if generated_cv %}<option value="generated:{{ generated_cv.id }}" {% if gen_ok %}selected{% else %}disabled{% endif %}>{{ t("cvb.tailored_cv") }}{% if not gen_ok %} ({{ t("cvb.ats_failed") }}){% endif %}</option>{% endif %}
+              {% for cv in cvs %}<option value="cv:{{ cv.id }}" {% if not gen_ok and application.cv_id == cv.id %}selected{% endif %}>{{ cv.name }}</option>{% endfor %}
+            </select>
+            {% if generated_cv %}<a href="/cv-builder/cvs/{{ generated_cv.id }}" class="hint">{{ t("cvb.view_edit_tailored") }}</a>
+            {% else %}<form method="post" action="/cv-builder/for-application/{{ application.id }}" style="display:inline"><button type="submit" class="secondary">{{ t("cvb.tailor") }}</button></form>{% endif %}
           {% elif application.cv %}
             {{ application.cv.name }}
           {% else %}
@@ -237,8 +229,8 @@
 
     {% if application.state.value == "PENDING_APPROVAL" %}
     <div class="review-panel">
-      <form method="post" action="/applications/{{ application.id }}/approve" data-loading-text="{{ t('loading.sending') }}" class="review-approve-form">
-        <button type="submit" {{ "disabled" if not recipient or not (application.cv or (generated_cv and generated_cv.status == 'approved')) }}>{{ t("application_detail.button.approve") }}</button>
+      <form method="post" action="/applications/{{ application.id }}/approve" data-loading-text="{{ t('loading.sending') }}" class="review-approve-form" id="approve-form">
+        <button type="submit" {{ "disabled" if not recipient or not (cvs or generated_cv) }}>{{ t("application_detail.button.approve") }}</button>
       </form>
       <details class="reject-toggle">
         <summary>{{ t("application_detail.button.reject") }}</summary>
@@ -269,7 +261,7 @@
     </form>
   </div>
 
-  <div class="section card">
+  <div class="section card" data-row id="follow-ups">
     <h2>{{ t("application_detail.follow_ups_title") }}</h2>
     {% for follow_up in follow_ups if follow_up.state.value == "SENT" %}
       <div class="evidence">
@@ -286,7 +278,7 @@
         <form method="post" action="/applications/{{ application.id }}/follow-ups/{{ pending_follow_up.id }}/send" data-loading-text="{{ t('loading.sending') }}">
           <button type="submit" {{ "disabled" if not recipient }}>{{ t("application_detail.button.send_follow_up") }}</button>
         </form>
-        <form method="post" action="/applications/{{ application.id }}/follow-ups/{{ pending_follow_up.id }}/delete">
+        <form method="post" action="/applications/{{ application.id }}/follow-ups/{{ pending_follow_up.id }}/delete" data-inline="swap">
           <button type="submit" class="secondary danger">{{ t("common.delete") }}</button>
         </form>
       </div>

@@ -3,7 +3,7 @@
 {% block content %}
   <p><a href="/postings/boards">← {{ t("boards.title") }}</a></p>
   <h1>{{ board.company_name or board.token }} <span class="badge">{{ board.provider }}</span></h1>
-  <div class="card"><p>{{ t("boards.imported") }} {{ counts.imported }} · {{ t("boards.already_known") }} {{ counts.already_known }} · {{ t("boards.ambiguous") }} {{ counts.ambiguous }} · {{ t("boards.rejected") }} {{ counts.rejected }}</p>
+  <div class="card"><p>{{ t("boards.imported") }} {{ counts.imported }} · {{ t("boards.already_known") }} {{ counts.already_known }} · {{ t("boards.ambiguous") }} {{ counts.ambiguous }} · {{ t("boards.rejected") }} {{ counts.rejected }} · {{ t("boards.not_relevant") }} {{ counts.not_relevant }}</p>
     <p class="hint">{{ t("boards.filter_hint") }}</p>
     <a class="button-link" href="/postings">{{ t("postings.title") }}</a></div>
   {% if ambiguous %}

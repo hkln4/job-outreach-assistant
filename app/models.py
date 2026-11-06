@@ -164,6 +164,8 @@ class OwnerSettings(Base):
     # Generated CVs (phase 5): the CV whose Education / Experience / Certificates
     # are copied verbatim, and whether the owner approved the template.
     base_cv_id: Mapped[int | None] = mapped_column(nullable=True)
+    # Repos the owner deleted from his profile: never listed or suggested again.
+    excluded_repos: Mapped[list] = mapped_column(JSON, default=list)
     cv_template_approved: Mapped[bool] = mapped_column(default=False)
 
 
@@ -517,6 +519,8 @@ class CVProject(Base):
     link_url: Mapped[str] = mapped_column(String, default="")
     selected: Mapped[bool] = mapped_column(default=True)
     owner_decided: Mapped[bool] = mapped_column(default=False)  # suggestions never flip an owner choice
+    # high | normal | low - how many bullets the project gets (3 / 2 / 1).
+    priority: Mapped[str] = mapped_column(String, default="normal")
     score: Mapped[int] = mapped_column(default=0)
     sort_order: Mapped[int] = mapped_column(default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
@@ -559,6 +563,9 @@ class TechSkill(Base):
     evidence: Mapped[list] = mapped_column(JSON, default=list)
     manual: Mapped[bool] = mapped_column(default=False)
     hidden: Mapped[bool] = mapped_column(default=False)
+    # core: on every CV. specific: a niche tool, only on a CV whose posting asks for it.
+    tier: Mapped[str] = mapped_column(String, default="core")
+    tier_set_by_owner: Mapped[bool] = mapped_column(default=False)
     sort_order: Mapped[int] = mapped_column(default=0)
 
 

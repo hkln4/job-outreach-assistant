@@ -31,6 +31,11 @@
     </select>
   </form>
 
+  {% if hidden_count %}
+  <p class="hint">{{ hidden_count }} {{ t("postings.hidden_not_relevant") }}
+    {% if not show_all %}<a href="/postings?status={{ filter_status }}&show_all=1">{{ t("postings.show_them") }}</a>{% else %}<a href="/postings?status={{ filter_status }}">{{ t("postings.hide_them") }}</a>{% endif %}
+    · <form method="post" action="/postings/dismiss-irrelevant" style="display:inline"><button type="submit" class="secondary">{{ t("postings.dismiss_irrelevant") }}</button></form></p>
+  {% endif %}
   <table class="table">
     <thead><tr><th>{{ t("postings.table.posting") }}</th><th>{{ t("postings.table.gates") }}</th><th>{{ t("postings.table.fit") }}</th><th>{{ t("common.state") }}</th></tr></thead>
     <tbody>

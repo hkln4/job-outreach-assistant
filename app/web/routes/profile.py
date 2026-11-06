@@ -18,7 +18,7 @@ from app.config import get_settings
 from app.db import get_db
 from app.llm.base import LLMProvider
 from app.applications.facts import approve_fact
-from app.models import CV, Profile, ProfileFact, ProfileFactStatus, ProfileItem, ProfileItemStatus
+from app.models import CV, CVProject, OwnerSettings, Profile, ProfileFact, ProfileFactStatus, ProfileItem, ProfileItemStatus
 from app.profile_builder.coverage import ledger_summary
 from app.profile_builder.cv_parser import ingest_cv
 from app.profile_builder.github_ingest import ingest_repo, list_candidate_repos
@@ -53,25 +53,98 @@ def _ingested_cv_paths(db: Session) -> set[str]:
     }
 
 
+GROUPS = (
+    ("projects", ("github_repo", "site")),
+    ("experience", ("cv", "linkedin")),
+    ("facts", ("owner",)),
+)
+
+
+def item_title(item: ProfileItem) -> str:
+    """A readable name for a record (never the raw file#entry ref)."""
+    extracted = item.extracted or {}
+    if extracted.get("entry_type"):
+        dates = " – ".join(p for p in (extracted.get("start"), extracted.get("end")) if p)
+        return " · ".join(p for p in (extracted.get("role") or extracted.get("title", ""), dates) if p)
+    if item.source_type == "github_repo":
+        return item.source_ref.split("/")[-1]
+    if item.source_type == "owner":
+        return extracted.get("purpose", "")[:80]
+    return item.source_ref.removeprefix("https://").removeprefix("http://")
+
+
+def open_questions(item: ProfileItem) -> list[str]:
+    answered = {f.get("question") for f in item.owner_facts or []}
+    return [q for q in (item.extracted or {}).get("open_questions") or [] if q not in answered]
+
+
+def _aware(moment):
+    from datetime import timezone as tz
+
+    return moment if moment is None or moment.tzinfo else moment.replace(tzinfo=tz.utc)
+
+
+def next_steps(db: Session, profile: Profile | None, items: list[ProfileItem], pending_cvs: list[CV]) -> list[dict]:
+    """What the owner should do next on this page, most useful first."""
+    steps = []
+    failed = [i for i in items if i.status == ProfileItemStatus.NEEDS_REVIEW]
+    if pending_cvs:
+        steps.append({"key": "ingest_cvs", "count": len(pending_cvs)})
+    if failed:
+        steps.append({"key": "failed", "count": len(failed), "href": f"/profile/items/{failed[0].id}"})
+    pending = [i for i in items if i.pending_update]
+    if pending:
+        steps.append({"key": "pending", "count": len(pending), "href": f"/profile/items/{pending[0].id}"})
+    questions = [i for i in items if i.status == ProfileItemStatus.ANALYZED and open_questions(i)]
+    if questions:
+        steps.append({"key": "questions", "count": len(questions), "href": f"/profile/items/{questions[0].id}"})
+    analyzed = [i for i in items if i.status == ProfileItemStatus.ANALYZED]
+    synthesized_at = _aware(profile.updated_at) if profile and profile.summary else None
+    newer = [
+        i for i in analyzed
+        if synthesized_at is None
+        or (_aware(i.created_at) and _aware(i.created_at) > synthesized_at)
+        or ((i.source_version or {}).get("analyzed_at", "") > synthesized_at.isoformat())
+    ]
+    if analyzed and (synthesized_at is None or newer):
+        steps.append({"key": "synthesize", "count": len(newer) if synthesized_at else len(analyzed), "action": "/profile/synthesize"})
+    elif analyzed and profile and not profile.writeup:
+        steps.append({"key": "writeup", "count": 0, "action": "/profile/writeup/generate"})
+    return steps
+
+
 @router.get("")
-def profile_home(request: Request, reanalyzed: int = 0, db: Session = Depends(get_db)):
+def profile_home(
+    request: Request,
+    reanalyzed: int = 0,
+    ingested: int = -1,
+    skipped: int = 0,
+    updated: int = 0,
+    failed: str = "",
+    db: Session = Depends(get_db),
+):
     profile = db.query(Profile).first()
     items = db.query(ProfileItem).order_by(ProfileItem.created_at.desc()).all()
     ingested_paths = _ingested_cv_paths(db)
     cvs = db.query(CV).filter(CV.file_path != "").all()
     pending_cvs = [cv for cv in cvs if cv.file_path not in ingested_paths]
+    by_ref = {i.source_ref: i for i in items}
     return render(
         templates,
         request,
         "profile.html",
         {
             "profile": profile,
-            "items": items,
+            "groups": [(key, [i for i in items if i.source_type in types]) for key, types in GROUPS],
+            "items_count": len(items),
             "ledger": ledger_summary(db),
             "pending_cvs": pending_cvs,
             "has_any_cv": bool(cvs),
-            "reanalyzed": bool(reanalyzed),
-            "pending_count": sum(1 for item in items if item.pending_update),
+            "steps": next_steps(db, profile, items, pending_cvs),
+            "item_title": item_title,
+            "open_questions": open_questions,
+            "ingest_summary": {"done": ingested, "skipped": skipped, "updated": updated,
+                               "failed": [(name, by_ref.get(name)) for name in failed.split(",") if name]} if ingested >= 0 else None,
             "proposed_facts": db.query(ProfileFact).filter(ProfileFact.status == ProfileFactStatus.PROPOSED).order_by(ProfileFact.id).all(),
         },
     )
@@ -79,8 +152,17 @@ def profile_home(request: Request, reanalyzed: int = 0, db: Session = Depends(ge
 
 @router.post("/items/{item_id}/delete")
 def delete_profile_item(item_id: int, db: Session = Depends(get_db)):
+    """A deleted repo is also excluded, so the GitHub list never offers it again
+    (it can be restored there)."""
     item = db.get(ProfileItem, item_id)
     if item is not None:
+        if item.source_type == "github_repo":
+            settings = _owner_settings(db)
+            settings.excluded_repos = sorted(set(settings.excluded_repos or []) | {item.source_ref})
+        for project in db.query(CVProject).filter(CVProject.profile_item_id == item.id).all():
+            for bullet in project.bullets:
+                db.delete(bullet)
+            db.delete(project)
         db.delete(item)
         db.commit()
     return RedirectResponse(url="/profile", status_code=303)
@@ -230,8 +312,40 @@ def add_site(
     return RedirectResponse(url="/profile", status_code=303)
 
 
+def _owner_settings(db: Session) -> OwnerSettings:
+    settings = db.query(OwnerSettings).first()
+    if settings is None:
+        settings = OwnerSettings()
+        db.add(settings)
+        db.commit()
+    return settings
+
+
+def current_pushed_at(token: str, full_name: str) -> str:
+    """One GitHub call: when the repo was last pushed (same format as source_version)."""
+    from github import Github
+
+    pushed = Github(token).get_repo(full_name).pushed_at
+    return pushed.isoformat() if pushed else ""
+
+
+def repo_status(repo: dict, item: ProfileItem | None, excluded: set[str]) -> str:
+    """new | unchanged | changed | failed | excluded - decides the default
+    checkbox and what ingesting it does (unchanged costs nothing)."""
+    if repo["full_name"] in excluded:
+        return "excluded"
+    if item is None:
+        return "new"
+    if item.status != ProfileItemStatus.ANALYZED:
+        return "failed"
+    version = item.source_version or {}
+    if version.get("pushed_at") and version["pushed_at"] == repo.get("pushed_at"):
+        return "unchanged"
+    return "changed"
+
+
 @router.get("/github")
-def github_candidates(request: Request):
+def github_candidates(request: Request, db: Session = Depends(get_db)):
     settings = get_settings()
     repos = []
     error = None
@@ -239,7 +353,24 @@ def github_candidates(request: Request):
         repos = list_candidate_repos(settings.github_token)
     except Exception as exc:  # noqa: BLE001 - surfaced to the owner, not swallowed
         error = str(exc)
-    return render(templates, request, "profile_github.html", {"repos": repos, "error": error})
+    items = {i.source_ref: i for i in db.query(ProfileItem).filter(ProfileItem.source_type == "github_repo").all()}
+    excluded = set(_owner_settings(db).excluded_repos or [])
+    for repo in repos:
+        repo["status"] = repo_status(repo, items.get(repo["full_name"]), excluded)
+        repo["checked"] = repo["status"] in ("changed", "failed") or (repo["status"] == "new" and repo["suggested_include"])
+        repo["item_id"] = items[repo["full_name"]].id if repo["full_name"] in items else None
+    order = {"changed": 0, "failed": 1, "new": 2, "unchanged": 3, "excluded": 4}
+    repos.sort(key=lambda r: (order[r["status"]], not r["suggested_include"], r["full_name"].casefold()))
+    counts = {status: sum(1 for r in repos if r["status"] == status) for status in order}
+    return render(templates, request, "profile_github.html", {"repos": repos, "error": error, "counts": counts})
+
+
+@router.post("/github/restore")
+def github_restore(full_name: str = Form(...), db: Session = Depends(get_db)):
+    settings = _owner_settings(db)
+    settings.excluded_repos = [r for r in settings.excluded_repos or [] if r != full_name]
+    db.commit()
+    return RedirectResponse(url="/profile/github", status_code=303)
 
 
 @router.post("/github/ingest")
@@ -264,39 +395,54 @@ def github_ingest_step(
     repos: str = "",
     done: int = 0,
     total: int = 0,
+    failed: str = "",
+    skipped: int = 0,
+    updated: int = 0,
     db: Session = Depends(get_db),
     llm: LLMProvider = Depends(get_llm),
     draft_llm: LLMProvider = Depends(get_draft_llm),
 ):
-    """Ingests exactly one repo, then renders a self-refreshing progress page
-    pointing at the next one. Stateless by design - the remaining queue lives
-    in the URL, not server-side, so a page reload or server restart mid-batch
-    just re-does the current repo instead of losing track of the batch."""
+    """One repo per request on a self-refreshing page (the queue lives in the
+    URL, so a reload just redoes the current repo):
+    - analyzed and unchanged since (same pushed_at): skipped, no AI call;
+    - analyzed but changed: re-analysis, proposed as a diff (never overwrites);
+    - new or failed before: full analysis.
+    Failures are collected and summarized at the end, not flashed by."""
     remaining = [r for r in repos.split(",") if r]
+    failures = [f for f in failed.split(",") if f]
     if not remaining:
-        return RedirectResponse(url="/profile", status_code=303)
+        return RedirectResponse(url=f"/profile?ingested={done}&skipped={skipped}&updated={updated}&failed={','.join(failures)}", status_code=303)
 
     settings = get_settings()
-    current = remaining[0]
-    rest = remaining[1:]
-
-    error = None
+    current, rest = remaining[0], remaining[1:]
+    item = db.query(ProfileItem).filter(ProfileItem.source_type == "github_repo", ProfileItem.source_ref == current).first()
+    outcome = "analyzed"
     try:
-        ingest_repo(db, llm, settings.github_token, current, draft_llm=draft_llm)
-    except Exception as exc:  # noqa: BLE001 - surfaced on the progress page, not swallowed
-        error = str(exc)
+        pushed_at = current_pushed_at(settings.github_token, current) if item else ""
+        if item is not None and item.status == ProfileItemStatus.ANALYZED and (item.source_version or {}).get("pushed_at") == pushed_at and pushed_at:
+            outcome = "skipped"
+        elif item is not None and item.status == ProfileItemStatus.ANALYZED:
+            reanalyze_repo(db, llm, draft_llm, settings.github_token, item)
+            outcome = "updated"
+        else:
+            result = ingest_repo(db, llm, settings.github_token, current, draft_llm=draft_llm)
+            if result.status != ProfileItemStatus.ANALYZED:
+                outcome = "failed"
+    except Exception:  # noqa: BLE001 - collected and shown at the end
+        outcome = "failed"
     done += 1
-
-    if rest:
-        next_url = f"/profile/github/ingest/step?repos={','.join(rest)}&done={done}&total={total}"
-    else:
-        next_url = "/profile"
-
+    skipped += outcome == "skipped"
+    updated += outcome == "updated"
+    if outcome == "failed":
+        failures.append(current)
+    query = f"done={done}&total={total}&failed={','.join(failures)}&skipped={skipped}&updated={updated}"
+    next_url = f"/profile/github/ingest/step?repos={','.join(rest)}&{query}" if rest else f"/profile?ingested={done}&skipped={skipped}&updated={updated}&failed={','.join(failures)}"
     return render(
         templates,
         request,
         "ingest_progress.html",
-        {"done": done, "total": total, "current_repo": current, "error": error, "next_url": next_url},
+        {"done": done, "total": total, "current_repo": current, "outcome": outcome, "failures": failures,
+         "skipped": skipped, "updated": updated, "next_url": next_url},
     )
 
 

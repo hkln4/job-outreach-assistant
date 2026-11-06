@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.applications.outcomes import DIMENSIONS, funnel, record_outcome
 from app.applications.review import StateTransitionError
 from app.db import get_db
+from app.llm.call_log import cost_summary
 from app.models import Application, ApplicationState
 from app.web.errors import NotFoundError
 from app.web.render import render
@@ -18,7 +19,8 @@ templates = Jinja2Templates(directory="app/web/templates")
 
 @router.get("/funnel")
 def funnel_page(request: Request, db: Session = Depends(get_db)):
-    return render(templates, request, "funnel.html", {"data": funnel(db), "dimensions": DIMENSIONS})
+    costs = cost_summary(db)
+    return render(templates, request, "funnel.html", {"data": funnel(db), "dimensions": DIMENSIONS, "costs": costs})
 
 
 @router.post("/applications/{application_id}/outcome")

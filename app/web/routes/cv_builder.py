@@ -2,12 +2,12 @@
 one-time template approval, and the per-application CV preview -> render ->
 ATS check -> approve flow."""
 from fastapi import APIRouter, Depends, Form, Request
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.responses import FileResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
 from app.cv_builder.assemble import assemble, base_cv, locked_sections
-from app.cv_builder.bank import edit_bullet, generate_bullets, suggest_projects
+from app.cv_builder.bank import BULLETS_FOR_PRIORITY, approve_passing, can_approve, check_bullet, edit_bullet, generate_bullets, is_small, suggest_projects
 from app.cv_builder.consistency import check_consistency
 from app.cv_builder.render import RenderUnavailable
 from app.cv_builder.service import approve, create_for_application, render_generated, update_selection
@@ -38,14 +38,21 @@ def _back(anchor: str = "") -> RedirectResponse:
 
 @router.get("")
 def cv_builder_page(request: Request, error: str = "", db: Session = Depends(get_db)):
+    """One page: projects + bullets and skills on the left, the CV itself on
+    the right, re-rendered after every change."""
+    if not db.query(CVProject).count():
+        suggest_projects(db)  # first visit: start from suggestions, not an empty page
     selected_ids = selected_project_item_ids(db)
     skills = db.query(TechSkill).order_by(TechSkill.sort_order, TechSkill.id).all()
+    projects = db.query(CVProject).order_by(CVProject.selected.desc(), CVProject.sort_order).all()
+    bullets = [b for p in projects if p.selected for b in p.bullets]
     return render(
         templates,
         request,
         "cv_builder.html",
         {
-            "projects": db.query(CVProject).order_by(CVProject.selected.desc(), CVProject.sort_order).all(),
+            "projects": [p for p in projects if p.selected or not is_small(p)],
+            "small_projects": [p for p in projects if not p.selected and is_small(p)],
             "skills_by_group": {g: [(s, evidence_status(s, selected_ids)) for s in skills if s.group == g] for g in GROUPS},
             "group_titles": GROUP_TITLES["en"],
             "groups": GROUPS,
@@ -53,11 +60,32 @@ def cv_builder_page(request: Request, error: str = "", db: Session = Depends(get
             "base_cv": base_cv(db),
             "locked": locked_sections(db),
             "settings": _settings(db),
-            "generated": db.query(GeneratedCV).order_by(GeneratedCV.id.desc()).limit(20).all(),
             "consistency": check_consistency(db),
+            "can_approve": can_approve,
+            "bullets_for_priority": BULLETS_FOR_PRIORITY,
+            "progress": {
+                "projects": sum(1 for p in projects if p.selected),
+                "approved": sum(1 for b in bullets if b.status == "approved"),
+                "drafts": sum(1 for b in bullets if b.status == "draft"),
+                "missing": sum(1 for p in projects if p.selected and not p.bullets),
+            },
             "error": error,
         },
     )
+
+
+@router.get("/preview.pdf")
+def live_preview(drafts: int = 1, db: Session = Depends(get_db)):
+    """The CV as it stands now (no posting), rendered on the fly for the
+    preview pane - nothing stored."""
+    generated = GeneratedCV(selection=assemble(db, include_drafts=bool(drafts)), language="en")
+    try:
+        from app.cv_builder.render import render as render_cv
+
+        pdf, _ = render_cv(db, generated)
+    except RenderUnavailable as exc:
+        return Response(str(exc), status_code=503)
+    return Response(pdf, media_type="application/pdf", headers={"Cache-Control": "no-store"})
 
 
 @router.post("/projects/suggest")
@@ -73,13 +101,19 @@ def project_update(
     subtitle: str = Form(""),
     link_url: str = Form(""),
     name: str = Form(""),
+    priority: str = Form(""),
     db: Session = Depends(get_db),
     draft_llm: LLMProvider = Depends(get_draft_llm),
 ):
     project = db.get(CVProject, project_id)
     if project is None:
         raise NotFoundError(f"Project {project_id} not found")
-    if action == "toggle":
+    if action == "priority" and priority in BULLETS_FOR_PRIORITY:
+        project.priority = priority
+        project.owner_decided = True
+    elif action == "approve_all":
+        approve_passing(db, project)
+    elif action == "toggle":
         project.selected = not project.selected
         project.owner_decided = True
     elif action == "bullets":
@@ -105,11 +139,16 @@ def bullet_update(bullet_id: int, action: str = Form(...), text: str = Form(""),
         edit_bullet(db, bullet, text)
     elif action == "approve":
         edit_bullet(db, bullet, text)
-        bullet.status = "approved"
+        # always re-check (older bullets were stored before the ATS rules)
+        bullet.flags = check_bullet(bullet.text, bullet.project.profile_item if bullet.project else None)
+        if can_approve(bullet):  # ATS rules and grounding must pass
+            bullet.status = "approved"
     elif action == "unapprove":
         bullet.status = "draft"
     elif action == "accept_pending" and bullet.pending_text:
-        bullet.text, bullet.pending_text = bullet.pending_text, ""
+        text = bullet.pending_text
+        bullet.pending_text = ""
+        edit_bullet(db, bullet, text)
     elif action == "dismiss_pending":
         bullet.pending_text = ""
     elif action == "delete":
@@ -153,6 +192,9 @@ def skills_update(
         if skill is not None:
             if action == "toggle":
                 skill.hidden = not skill.hidden
+            elif action == "tier":
+                skill.tier = "specific" if skill.tier == "core" else "core"
+                skill.tier_set_by_owner = True
             elif action == "group" and group in GROUPS:
                 skill.group = group
             elif action == "delete":

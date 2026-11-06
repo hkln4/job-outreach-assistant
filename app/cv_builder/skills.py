@@ -36,6 +36,19 @@ CONCEPT_DISPLAY = {
     "time series": "Time Series", "data engineering": "Data Engineering", "mlops": "MLOps", "big data": "Big Data",
     "recommendation": "Recommender Systems", "generative ai": "LLMs",
 }
+# General, well-known skills that belong on every CV. Anything else found in
+# the code (Uvicorn, Pydantic, tiktoken, Gemini API ...) is "specific": listed
+# here, but put on a CV only when the posting asks for it.
+CORE_SKILLS = {
+    "python", "sql", "c", "c++", "java", "javascript", "typescript", "go", "r",
+    "pytorch", "tensorflow", "keras", "scikit-learn", "pandas", "numpy", "opencv", "matplotlib",
+    "xgboost", "lightgbm", "hugging face transformers", "langchain", "fastapi", "flask", "django",
+    "docker", "docker compose", "kubernetes", "git", "github actions", "linux", "postgresql", "mysql",
+    "mongodb", "redis", "apache airflow", "pyspark", "kafka", "mlflow", "bigquery", "aws (boto3)",
+    "react", "node.js", "ffmpeg", "gradio", "streamlit",
+}
+# A specific skill used in this many projects is core after all.
+CORE_MIN_SOURCES = 3
 LOCAL_LANGUAGE_NAMES = {"jupyter notebook": None, "html": None, "css": None, "shell": "Bash", "dockerfile": None}
 
 
@@ -48,6 +61,13 @@ def classify(name: str) -> str:
     if name in CONCEPT_DISPLAY.values():
         return "technologies"
     return "frameworks"
+
+
+def default_tier(name: str, group: str, evidence: list[dict]) -> str:
+    if group in ("languages", "technologies") or fold(name) in CORE_SKILLS:
+        return "core"
+    sources = {(e.get("kind"), e.get("item_id")) for e in evidence if e.get("kind") != "manual"}
+    return "core" if len(sources) >= CORE_MIN_SOURCES else "specific"
 
 
 def _display(name: str) -> str | None:
@@ -73,7 +93,10 @@ def collect_evidence(db: Session) -> dict[str, list[dict]]:
         extracted = item.extracted or {}
         if item.source_type == "github_repo":
             evidence = {"kind": "repo", "ref": item.source_ref, "item_id": item.id}
-            for tech in (item.facts or {}).get("stack") or extracted.get("stack") or []:
+            # Code-computed stack only. A v1 record's stack was written by a
+            # model, so from it only names the technology vocabulary knows count.
+            stack = (item.facts or {}).get("stack") or [t for t in extracted.get("stack") or [] if technologies_in(t)]
+            for tech in stack:
                 add(_display(tech), evidence)
             text = " ".join([extracted.get("one_liner", ""), extracted.get("approach", ""), " ".join(extracted.get("domains") or [])])
             for concept in concepts_in(text):
@@ -101,6 +124,8 @@ def rebuild_skills(db: Session) -> list[TechSkill]:
             existing[fold(name)] = skill
         manual_evidence = [e for e in skill.evidence or [] if e.get("kind") == "manual"]
         skill.evidence = items + manual_evidence
+        if not skill.tier_set_by_owner and not skill.manual:
+            skill.tier = default_tier(skill.name, skill.group, skill.evidence)
     for key, skill in existing.items():
         if key not in {fold(n) for n in evidence}:
             skill.evidence = [e for e in skill.evidence or [] if e.get("kind") == "manual"]
@@ -113,7 +138,8 @@ def rebuild_skills(db: Session) -> list[TechSkill]:
 def add_manual(db: Session, name: str, group: str = "") -> TechSkill:
     skill = next((s for s in db.query(TechSkill).all() if fold(s.name) == fold(name)), None)
     if skill is None:
-        skill = TechSkill(name=name.strip(), group=group if group in GROUPS else classify(name), manual=True, evidence=[{"kind": "manual", "ref": "added by you"}])
+        skill = TechSkill(name=name.strip(), group=group if group in GROUPS else classify(name), manual=True, tier="core",
+                          evidence=[{"kind": "manual", "ref": "added by you"}])
         db.add(skill)
     else:
         skill.manual, skill.hidden = True, False

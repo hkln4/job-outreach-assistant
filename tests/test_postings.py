@@ -150,7 +150,7 @@ def test_ats_board_turkey_filter_imports_accepted_and_holds_ambiguous():
         db.add(board)
         db.commit()
         counts = ats.import_board_postings(db, board, postings)
-        assert counts == {"imported": 1, "already_known": 0, "ambiguous": 1, "rejected": 1}
+        assert counts == {"imported": 1, "already_known": 0, "ambiguous": 1, "rejected": 1, "not_relevant": 0}
         counts = ats.import_board_postings(db, board, postings, include_ids={"2"})
         assert counts["imported"] == 1 and counts["already_known"] == 1
         imported = db.query(JobPosting).filter(JobPosting.url == "https://boards.greenhouse.io/acme/jobs/1").one()

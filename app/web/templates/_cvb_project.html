@@ -1,0 +1,70 @@
+{# One project block on the CV builder: select, priority, bullets. Swapped in place. #}
+<div class="cvb-project{{ ' is-off' if not p.selected }}" data-row id="project-{{ p.id }}">
+  <div class="row">
+    <form method="post" action="/cv-builder/projects/{{ p.id }}" data-inline="swap">
+      <input type="hidden" name="action" value="toggle">
+      <button type="submit" class="{{ '' if p.selected else 'secondary' }}" title="{{ t('cvb.toggle_hint') }}">{{ "✓" if p.selected else "+" }}</button>
+    </form>
+    <span class="row-main"><strong>{{ p.name }}</strong>{% if p.subtitle %} <span class="row-meta">— {{ p.subtitle }}</span>{% endif %}</span>
+    {% if p.selected %}
+    <form method="post" action="/cv-builder/projects/{{ p.id }}" data-inline="swap">
+      <input type="hidden" name="action" value="priority">
+      <select name="priority" onchange="this.form.requestSubmit()" title="{{ t('cvb.priority_hint') }}">
+        {% for level in ("high", "normal", "low") %}<option value="{{ level }}" {% if p.priority == level %}selected{% endif %}>{{ t("cvb.priority." ~ level) }} · {{ bullets_for_priority[level] }}</option>{% endfor %}
+      </select>
+    </form>
+    <form method="post" action="/cv-builder/projects/{{ p.id }}" data-inline="swap" class="js-write{{ ' js-missing' if not p.bullets }}">
+      <input type="hidden" name="action" value="bullets">
+      <button type="submit" class="secondary">{{ t("cvb.write_bullets") if not p.bullets else t("cvb.rewrite_bullets") }}</button>
+    </form>
+    {% if p.bullets | selectattr("status", "equalto", "draft") | list %}
+    <form method="post" action="/cv-builder/projects/{{ p.id }}" data-inline="swap">
+      <input type="hidden" name="action" value="approve_all">
+      <button type="submit" class="secondary">{{ t("cvb.approve_all") }}</button>
+    </form>
+    {% endif %}
+    {% endif %}
+  </div>
+  {% if p.selected %}
+  <div class="cvb-bullets">
+    {% for b in p.bullets %}
+      {% set flags = b.flags or {} %}
+      <form method="post" action="/cv-builder/bullets/{{ b.id }}" data-inline="swap" class="cvb-bullet">
+        <textarea name="text" rows="2" class="bullet-text">{{ b.text }}</textarea>
+        <div class="row-actions">
+          {% if b.status == "approved" %}
+            <span class="badge badge-state">{{ t("cvb.status.approved") }}</span>
+            <button type="submit" name="action" value="unapprove" class="secondary">↺</button>
+          {% elif can_approve(b) %}
+            <button type="submit" name="action" value="approve">{{ t("cvb.approve") }}</button>
+          {% else %}
+            <span class="badge badge-soft" title="{{ (flags.ats or []) | join(', ') }}">{{ t("cvb.fix_first") }}</span>
+          {% endif %}
+          <button type="submit" name="action" value="save" class="secondary" title="{{ t('common.save') }}">💾</button>
+          <button type="submit" name="action" value="delete" class="secondary danger" title="{{ t('common.delete') }}">✕</button>
+        </div>
+        <div class="bullet-source">
+          {% for issue in flags.ats or [] %}<span class="badge badge-soft">{{ t("cvb.ats." ~ issue) }}</span> {% endfor %}
+          {% if flags.ungrounded_numbers %}<span class="badge badge-hard">{{ t("cvb.flag_numbers") }} {{ flags.ungrounded_numbers | join(", ") }}</span> {% endif %}
+          {% if flags.ungrounded_tech %}<span class="badge badge-hard">{{ t("cvb.flag_tech") }} {{ flags.ungrounded_tech | join(", ") }}</span> {% endif %}
+          {% if b.source.quote %}{{ t("cvb.source") }} “{{ b.source.quote }}”{% endif %}
+          {% if b.locked %} · {{ t("cvb.locked") }}{% endif %}
+        </div>
+        {% if b.pending_text %}
+          <div class="bullet-source">{{ t("profile_item.proposed") }}: “{{ b.pending_text }}”
+            <button type="submit" name="action" value="accept_pending" class="secondary">{{ t("profile_item.accept") }}</button>
+            <button type="submit" name="action" value="dismiss_pending" class="secondary">{{ t("profile_item.dismiss") }}</button></div>
+        {% endif %}
+      </form>
+    {% else %}
+      <p class="hint">{{ t("cvb.no_bullets_yet") }}</p>
+    {% endfor %}
+    {% if p.bullets and p.bullets | selectattr("flags.needs_metric") | list and p.profile_item %}
+      <form method="post" action="/cv-builder/projects/{{ p.id }}/metric" class="inline-form" data-inline="swap">
+        <input type="text" name="answer" placeholder="{{ t('cvb.metric_placeholder') }}" title="{{ t('cvb.ask_metric') }}">
+        <button type="submit" class="secondary">{{ t("cvb.add_metric") }}</button>
+      </form>
+    {% endif %}
+  </div>
+  {% endif %}
+</div>

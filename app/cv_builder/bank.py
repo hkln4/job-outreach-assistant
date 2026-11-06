@@ -14,6 +14,7 @@ assembled from them.
   regeneration puts its suggestion in `pending_text` as a diff.
 """
 import json
+import re
 from typing import Literal
 
 from pydantic import BaseModel
@@ -26,24 +27,37 @@ from app.llm.call_log import llm_context, set_llm_ids
 from app.llm.json_utils import parse_json_object
 from app.models import Bullet, CVProject, ProfileItem, ProfileItemStatus
 
-MAX_BULLETS = 6
-MIN_BULLETS = 3
-PROJECT_SOURCE_TYPES = ("github_repo", "site", "owner")
+MAX_BULLETS = 3
+PROJECT_SOURCE_TYPES = ("github_repo", "site")
+# How many bullets a project gets, by its priority - small work gets few,
+# general bullets, not one bullet per detail.
+BULLETS_FOR_PRIORITY = {"high": 3, "normal": 2, "low": 1}
+# Default selection: the best few projects; anything scoring below this is
+# "small work" - listed, but off and without bullets unless the owner picks it.
+DEFAULT_SELECTED = 4
+SMALL_PROJECT_SCORE = 8
+# ATS-friendly bullet rules (checked by code)
+MAX_BULLET_CHARS = 220
+WEAK_OPENERS = ("i ", "we ", "my ", "responsible for", "worked on", "helped", "was ", "assisted", "tasked with", "involved in")
+ODD_CHARS_RE = re.compile(r"[|•●▪★→←✓✔︎\t]|[\U0001F300-\U0001FAFF]")
 
-BULLET_SYSTEM_PROMPT = f"""You are writing CV bullets for ONE of the owner's projects, from its \
+BULLET_SYSTEM_PROMPT = """You are writing CV bullets for ONE of the owner's projects, from its \
 profile record only. These go in a bullet bank the owner approves once and reuses on every CV.
 
-Write {MIN_BULLETS}-{MAX_BULLETS} ATS-friendly bullets in English:
+Write EXACTLY the number of bullets asked (BULLETS WANTED), in English. Fewer, broader bullets \
+beat many narrow ones: summarize the project's main achievement at a general level, merge small \
+details into one statement, and leave out minor implementation details entirely.
 - Pattern: strong action verb + what was built + key technology + result.
 - Result: a real metric from RESULTS or OWNER FACTS when one exists; otherwise a concrete scale \
 fact the record states (dataset size, rule count, test count, languages supported); otherwise \
 no number at all. NEVER invent a number to complete the pattern.
-- Technologies only from STACK. One line each when possible (max ~25 words). No first person.
+- Technologies only from STACK, at most three per bullet. One line each (max ~25 words). No first \
+person, no "responsible for", no symbols or emojis.
 For each bullet return: "text"; "tech" (technologies it names); "domain" (e.g. medical \
-imaging, RAG); "role_types" (subset of {list(ROLE_TYPES)} it fits); "source_quote" (the record \
-text or owner fact its claim comes from, copied exactly); "source_kind" (result | owner_fact | \
-record); "metric" (real | scale | none).
-Output ONLY JSON: {{"bullets": [...]}}"""
+imaging, RAG); "role_types" (subset of ml_ai, computer_vision, backend_data, mlops it fits); \
+"source_quote" (the record text or owner fact its claim comes from, copied exactly); \
+"source_kind" (result | owner_fact | record); "metric" (real | scale | none).
+Output ONLY JSON: {"bullets": [...]}"""
 
 
 class _BulletOut(BaseModel):
@@ -83,9 +97,20 @@ def project_name(item: ProfileItem) -> str:
     return extracted.get("title") or extracted.get("one_liner") or extracted.get("purpose", "")[:60] or item.source_ref
 
 
-def suggest_projects(db: Session, top: int = 5) -> list[CVProject]:
+def default_priority(rank: int, score: int) -> str:
+    if score < SMALL_PROJECT_SCORE:
+        return "low"
+    return "high" if rank < 2 else "normal"
+
+
+def is_small(project: CVProject) -> bool:
+    return project.score < SMALL_PROJECT_SCORE and not project.owner_decided
+
+
+def suggest_projects(db: Session, top: int = DEFAULT_SELECTED) -> list[CVProject]:
     """Create CVProject rows for analyzed project records; the `top` best
-    are selected unless the owner already decided."""
+    are selected (small work never by default) unless the owner already
+    decided, and get a default priority."""
     items = (
         db.query(ProfileItem)
         .filter(ProfileItem.status == ProfileItemStatus.ANALYZED, ProfileItem.source_type.in_(PROJECT_SOURCE_TYPES))
@@ -101,7 +126,8 @@ def suggest_projects(db: Session, top: int = 5) -> list[CVProject]:
         project.score = project_score(item)
         project.sort_order = rank
         if not project.owner_decided:
-            project.selected = rank < top
+            project.selected = rank < top and project.score >= SMALL_PROJECT_SCORE
+            project.priority = default_priority(rank, project.score)
     db.commit()
     return db.query(CVProject).order_by(CVProject.sort_order).all()
 
@@ -112,13 +138,38 @@ def _record_source_text(item: ProfileItem) -> str:
     return json.dumps(extracted, ensure_ascii=False) + "\n" + owner
 
 
+def ats_issues(text: str) -> list[str]:
+    """ATS-friendly rules a bullet must pass before it can be approved."""
+    issues = []
+    stripped = text.strip()
+    if len(stripped) > MAX_BULLET_CHARS:
+        issues.append("too_long")
+    if stripped.casefold().startswith(WEAK_OPENERS) or (stripped[:1].islower()):
+        issues.append("weak_opener")
+    if re.search(r"\b(i|my|me|we|our)\b", stripped, re.IGNORECASE):
+        issues.append("first_person")
+    if ODD_CHARS_RE.search(stripped):
+        issues.append("odd_characters")
+    if len(re.findall(r"[.!?](\s|$)", stripped)) > 2:
+        issues.append("too_many_sentences")
+    return issues
+
+
 def check_bullet(text: str, item: ProfileItem | None) -> dict:
-    """Code-side checks for one bullet against its project's record."""
-    if item is None:
-        return {"ungrounded_numbers": [], "ungrounded_tech": [], "needs_metric": not numbers_in(text)}
-    sources = _record_source_text(item) + "\n" + " ".join((item.facts or {}).get("stack", []))
-    misses = grounding_misses(text, sources)
-    return {"ungrounded_numbers": misses["numbers"], "ungrounded_tech": misses["technologies"], "needs_metric": not numbers_in(text)}
+    """Code-side checks for one bullet: grounding against its project's record
+    (citable text only) and the ATS rules."""
+    from app.applications.evidence import citable_text
+
+    flags = {"ats": ats_issues(text), "needs_metric": not numbers_in(text), "ungrounded_numbers": [], "ungrounded_tech": []}
+    if item is not None:
+        misses = grounding_misses(text, citable_text(item) + "\n" + " ".join((item.facts or {}).get("stack", [])))
+        flags["ungrounded_numbers"], flags["ungrounded_tech"] = misses["numbers"], misses["technologies"]
+    return flags
+
+
+def can_approve(bullet: Bullet) -> bool:
+    flags = bullet.flags or {}
+    return not (flags.get("ats") or flags.get("ungrounded_numbers") or flags.get("ungrounded_tech"))
 
 
 @llm_context("cv_bullets")
@@ -130,7 +181,9 @@ def generate_bullets(db: Session, draft_llm: LLMProvider, project: CVProject) ->
         raise ValueError("This project has no profile record to write bullets from.")
     set_llm_ids(profile_item_id=item.id)
     extracted = item.extracted or {}
+    wanted = BULLETS_FOR_PRIORITY.get(project.priority, 2)
     prompt = (
+        f"BULLETS WANTED: {wanted}\n"
         f"PROJECT: {project.name}\n"
         f"STACK (from code): {', '.join((item.facts or {}).get('stack') or extracted.get('stack') or [])}\n\n"
         f"RECORD:\n{json.dumps({k: v for k, v in extracted.items() if k not in ('purpose', 'highlights', 'role')}, ensure_ascii=False)[:8000]}\n\n"
@@ -147,7 +200,7 @@ def generate_bullets(db: Session, draft_llm: LLMProvider, project: CVProject) ->
     data = parse_json_object(response.text, fallback={})
     if "parse_error" in data:
         raise ValueError("The bullet answer wasn't valid JSON - try again.")
-    new = BulletsAnswer.model_validate(data).model_dump()["bullets"][:MAX_BULLETS]
+    new = BulletsAnswer.model_validate(data).model_dump()["bullets"][:wanted]
 
     kept = [b for b in project.bullets if b.locked or b.status == "approved"]
     for bullet in project.bullets:
@@ -176,6 +229,20 @@ def generate_bullets(db: Session, draft_llm: LLMProvider, project: CVProject) ->
     db.commit()
     db.refresh(project)
     return project.bullets
+
+
+def approve_passing(db: Session, project: CVProject) -> int:
+    """Approve every draft bullet of the project that passes the checks."""
+    count = 0
+    for bullet in project.bullets:
+        if bullet.status != "draft":
+            continue
+        bullet.flags = check_bullet(bullet.text, project.profile_item)
+        if can_approve(bullet):
+            bullet.status = "approved"
+            count += 1
+    db.commit()
+    return count
 
 
 def edit_bullet(db: Session, bullet: Bullet, text: str) -> None:

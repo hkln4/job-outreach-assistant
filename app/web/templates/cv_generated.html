@@ -2,78 +2,60 @@
 {% block title %}CV #{{ generated.id }}{% endblock %}
 {% block content %}
   <p><a href="/cv-builder">← {{ t("cvb.title") }}</a>{% if generated.application_id %} · <a href="/applications/{{ generated.application_id }}">{{ t("nav.applications") }} #{{ generated.application_id }}</a>{% endif %}</p>
-  <h1>{{ t("cvb.preview_title") }} <span class="badge">{{ generated.status }}</span></h1>
+  <h1>{{ t("cvb.preview_title") }}</h1>
   {% if error == "template" %}<div class="warning">{{ t("cvb.need_template") }}</div>{% elif error == "ats" %}<div class="warning">{{ t("cvb.need_ats") }}</div>{% elif error %}<div class="warning">{{ error }}</div>{% endif %}
-  {% set kw = generated.keyword_report or {} %}
-  {% if selection.keywords %}
-  <div class="card">
-    <p><strong>{{ t("cvb.keywords") }}</strong> <span class="hint">({{ t("cvb.role_type") }} {{ selection.role_type }})</span></p>
-    {% if kw.covered is defined %}
-      <p>{% for k in kw.covered %}<span class="badge badge-state">{{ k }}</span> {% endfor %}</p>
-      {% if kw.missing %}<p class="hint">{{ t("cvb.missing_keywords") }} {% for k in kw.missing %}<span class="badge badge-soft">{{ k }}</span> {% endfor %}</p>{% endif %}
-    {% else %}<p>{% for k in selection.keywords %}<span class="badge">{{ k }}</span> {% endfor %}</p>{% endif %}
-  </div>
-  {% endif %}
 
-  <form method="post" action="/cv-builder/cvs/{{ generated.id }}" data-loading-text="{{ t('loading.rendering') }}">
-    <div class="section card">
-      <h2>{{ t("cvb.locked_sections") }}</h2>
-      <p class="hint">{{ t("cvb.locked_preview_hint") }}</p>
-      {% for e in locked.education + locked.experience %}<p><strong>{{ e.title }}</strong>{% if e.organization %}, <em>{{ e.organization }}</em>{% endif %} <span class="hint">{{ e.start }} – {{ e.end }}</span></p>{% endfor %}
-      <label class="inline"><input type="checkbox" name="certificates" value="1" {% if selection.certificates %}checked{% endif %}> {{ t("cvb.include_certificates") }} ({{ locked.certificates | length }})</label>
-      <label>{{ t("cvb.language") }} <select name="language"><option value="en" {% if generated.language == 'en' %}selected{% endif %}>English</option><option value="tr" {% if generated.language == 'tr' %}selected{% endif %}>Türkçe</option></select></label>
-    </div>
+  <div class="cvb-grid">
+    <form method="post" action="/cv-builder/cvs/{{ generated.id }}" data-autosave="render" class="cvb-editor">
+      <p class="hint">{{ t("cvb.tailor_hint") }}</p>
+      {% set kw = generated.keyword_report or {} %}
+      <div data-refresh id="keywords">
+        {% if selection.keywords %}
+          <div class="rows-title">{{ t("cvb.keywords") }} <span class="hint">({{ selection.role_type }})</span></div>
+          <p>{% for k in kw.covered or [] %}<span class="badge badge-state">{{ k }}</span> {% endfor %}
+             {% for k in kw.missing or [] %}<span class="badge badge-soft" title="{{ t('cvb.missing_keywords') }}">{{ k }}</span> {% endfor %}</p>
+        {% endif %}
+      </div>
 
-    <div class="section card">
-      <h2>{{ t("cvb.skills_title") }}</h2>
-      {% for g in groups %}
-        <p><strong>{{ group_titles[g] }}</strong><br>
-        {% for name in skills_by_group[g] %}<label class="inline"><input type="checkbox" name="skills_{{ g }}" value="{{ name }}" {% if name in (selection.skills or {}).get(g, []) %}checked{% endif %}> {{ name }}</label> {% endfor %}</p>
-      {% endfor %}
-    </div>
-
-    <div class="section card">
-      <h2>{{ t("cvb.projects_title") }}</h2>
-      <p class="hint">{{ t("cvb.preview_projects_hint") }}</p>
+      <div class="rows-title">{{ t("cvb.projects_title") }}</div>
       {% for p in projects %}
         {% set chosen = p.id in (selection.project_ids or []) %}
-        <div class="evidence">
-          <label class="inline"><input type="checkbox" name="project_ids" value="{{ p.id }}" {% if chosen %}checked{% endif %}> <strong>{{ p.name }}</strong></label>
+        <div class="cvb-project{{ '' if chosen else ' is-off' }}">
+          <label class="row"><input type="checkbox" name="project_ids" value="{{ p.id }}" {% if chosen %}checked{% endif %}> <strong>{{ p.name }}</strong></label>
+          <div class="cvb-bullets">
           {% for b in p.bullets if b.status == "approved" %}
             {% set picked = b.id in (selection.bullet_ids or {}).get(p.id | string, []) %}
-            <div class="bullet-row">
-              <input type="checkbox" name="bullet_ids" value="{{ p.id }}:{{ b.id }}" {% if picked %}checked{% endif %}>
-              <textarea name="text_{{ b.id }}" rows="2">{{ (selection.bullet_overrides or {}).get(b.id | string) or b.text }}</textarea>
-              <label class="inline hint"><input type="checkbox" name="save_to_bank" value="{{ b.id }}"> {{ t("cvb.save_to_bank") }}</label>
+            <div class="cvb-bullet">
+              <textarea name="text_{{ b.id }}" rows="2" class="bullet-text">{{ (selection.bullet_overrides or {}).get(b.id | string) or b.text }}</textarea>
+              <div class="row-actions"><label class="inline"><input type="checkbox" name="bullet_ids" value="{{ p.id }}:{{ b.id }}" {% if picked %}checked{% endif %}></label></div>
+              <label class="inline bullet-source"><input type="checkbox" name="save_to_bank" value="{{ b.id }}"> {{ t("cvb.save_to_bank") }}</label>
             </div>
           {% endfor %}
+          </div>
         </div>
       {% else %}<p class="muted">{{ t("cvb.no_projects") }}</p>{% endfor %}
-    </div>
-    <div class="review-panel">
-      <button type="submit" name="action" value="save" class="secondary">{{ t("common.save") }}</button>
-      <button type="submit" name="action" value="render">{{ t("cvb.render") }}</button>
-    </div>
-  </form>
 
-  {% if generated.pdf_path %}
-  {% set ats = generated.ats_report or {} %}
-  <div class="section card" id="pdf">
-    <h2>{{ t("cvb.ats_title") }} {% if ats.passed %}<span class="badge badge-state">{{ t("cvb.ats_passed") }}</span>{% else %}<span class="badge badge-hard">{{ t("cvb.ats_failed") }}</span>{% endif %}</h2>
-    <ul>{% for c in ats.checks or [] %}<li>{{ "✓" if c.passed else "✗" }} {{ t("cvb.check." ~ c.name) }}{% if c.detail and not c.passed %} <span class="muted">{{ c.detail }}</span>{% endif %}</li>{% endfor %}</ul>
-    {% if sample %}
-      <p class="hint">{{ t("cvb.compare_hint") }}</p>
-      <div class="grid-2">
-        <iframe src="/cv-builder/cvs/{{ generated.id }}/pdf" class="pdf-frame" title="generated"></iframe>
-        <iframe src="/cv-builder/base-pdf" class="pdf-frame" title="base"></iframe>
+      <div class="rows-title">{{ t("cvb.skills_title") }}</div>
+      {% for g in groups %}
+        <p><strong class="hint">{{ group_titles[g] }}</strong><br>
+        {% for name in skills_by_group[g] %}<label class="inline chip"><input type="checkbox" name="skills_{{ g }}" value="{{ name }}" {% if name in (selection.skills or {}).get(g, []) %}checked{% endif %}> {{ name }}</label> {% endfor %}</p>
+      {% endfor %}
+      <label class="inline"><input type="checkbox" name="certificates" value="1" {% if selection.certificates %}checked{% endif %}> {{ t("cvb.include_certificates") }}</label>
+      <label class="inline">{{ t("cvb.language") }} <select name="language"><option value="en" {% if generated.language == 'en' %}selected{% endif %}>English</option><option value="tr" {% if generated.language == 'tr' %}selected{% endif %}>Türkçe</option></select></label>
+    </form>
+
+    <div class="cvb-preview">
+      {% set ats = generated.ats_report or {} %}
+      <div data-refresh id="ats">
+        <div class="dash-header">
+          <h2>{{ t("cvb.ats_title") }} {% if ats.passed %}<span class="badge badge-state">{{ t("cvb.ats_passed") }}</span>{% elif ats %}<span class="badge badge-hard">{{ t("cvb.ats_failed") }}</span>{% endif %}</h2>
+          {% if generated.application_id and ats.passed and generated.status != "approved" %}
+            <form method="post" action="/cv-builder/cvs/{{ generated.id }}/approve"><button type="submit">{{ t("cvb.approve_attach") }}</button></form>
+          {% elif generated.status == "approved" %}<span class="badge badge-state">{{ t("cvb.status.approved") }}</span>{% endif %}
+        </div>
+        {% for c in ats.checks or [] if not c.passed %}<p class="hint">✗ {{ t("cvb.check." ~ c.name) }} {{ c.detail }}</p>{% endfor %}
       </div>
-      {% if not template_approved %}<form method="post" action="/cv-builder/template/approve"><button type="submit">{{ t("cvb.approve_template") }}</button></form>{% endif %}
-    {% else %}
-      <iframe src="/cv-builder/cvs/{{ generated.id }}/pdf" class="pdf-frame" title="generated"></iframe>
-      {% if generated.application_id and generated.status != "approved" %}
-        <form method="post" action="/cv-builder/cvs/{{ generated.id }}/approve"><button type="submit" {{ "disabled" if not ats.passed }}>{{ t("cvb.approve_attach") }}</button></form>
-      {% endif %}
-    {% endif %}
+      <iframe src="/cv-builder/cvs/{{ generated.id }}/pdf" data-live-preview="/cv-builder/cvs/{{ generated.id }}/pdf" class="pdf-frame" title="CV"></iframe>
+    </div>
   </div>
-  {% endif %}
 {% endblock %}

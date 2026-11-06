@@ -79,7 +79,13 @@ def render_generated(db: Session, generated: GeneratedCV) -> GeneratedCV:
 
 
 def approve(db: Session, generated: GeneratedCV) -> None:
-    """Blocked while the ATS check fails or the PDF is stale."""
+    """Blocked while the ATS check fails, the PDF is missing or the template
+    hasn't been approved once."""
+    from app.models import OwnerSettings
+
+    settings = db.query(OwnerSettings).first()
+    if not settings or not settings.cv_template_approved:
+        raise ValueError("Approve the CV template first.")
     if not generated.pdf_path or not (generated.ats_report or {}).get("passed"):
         raise ValueError("Render the CV and pass the ATS check before approving it.")
     generated.status = "approved"
@@ -92,3 +98,22 @@ def approve(db: Session, generated: GeneratedCV) -> None:
 
 def language_of(text: str) -> str:
     return detect_language(text) or "en"
+
+
+def auto_tailor(db: Session, application: Application) -> GeneratedCV | None:
+    """Make the tailored CV for a new draft automatically - by code, no LLM:
+    when the template is approved and the bank has approved bullets. The owner
+    still approves it (one click, or by sending with it attached)."""
+    from app.models import Bullet, OwnerSettings
+
+    settings = db.query(OwnerSettings).first()
+    if not settings or not settings.cv_template_approved:
+        return None
+    if not db.query(Bullet).filter(Bullet.status == "approved").count():
+        return None
+    try:
+        generated = create_for_application(db, application)
+        return render_generated(db, generated)
+    except Exception:  # noqa: BLE001 - the letter never waits on the CV
+        db.rollback()
+        return None

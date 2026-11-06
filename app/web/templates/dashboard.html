@@ -5,7 +5,7 @@
     <h1>{{ t("dashboard.title") }}</h1>
     <a class="button-link" href="/companies">{{ t("dashboard.button.add_company") }}</a>
   </div>
-  <p class="hint"><a href="/costs">{{ t("dashboard.cost_this_month") }} ${{ "%.2f"|format(month_cost) }}</a></p>
+  <p class="hint"><a href="/funnel">{{ t("dashboard.stats_link") }}</a> · {{ t("dashboard.cost_this_month") }} ${{ "%.2f"|format(month_cost) }}</p>
 
   {% if not setup_done %}
   <div class="card">

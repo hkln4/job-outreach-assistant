@@ -79,6 +79,10 @@ _COLUMN_MIGRATIONS = [
     ("applications", "generated_cv_id", "INTEGER"),
     ("applications", "replied_at", "DATETIME"),
     ("applications", "outcome", "JSON DEFAULT '{}'"),
+    ("owner_settings", "excluded_repos", "JSON DEFAULT '[]'"),
+    ("cv_projects", "priority", "VARCHAR DEFAULT 'normal'"),
+    ("tech_skills", "tier", "VARCHAR DEFAULT 'core'"),
+    ("tech_skills", "tier_set_by_owner", "BOOLEAN DEFAULT 0"),
 ]
 
 

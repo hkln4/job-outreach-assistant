@@ -76,7 +76,7 @@ def build_data(db: Session, generated: GeneratedCV, max_bullets: dict[int, int] 
         texts = []
         for bullet_id in ids:
             bullet = db.get(Bullet, bullet_id)
-            if bullet is not None and bullet.status == "approved":
+            if bullet is not None and (bullet.status == "approved" or selection.get("include_drafts")):
                 texts.append(overrides.get(str(bullet_id)) or bullet.text)
         title = project.name + (f" — {project.subtitle}" if project.subtitle else "")
         projects.append({"title": title, "link": project.link_url or "", "bullets": texts})

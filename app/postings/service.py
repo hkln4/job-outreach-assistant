@@ -15,7 +15,7 @@ from app.llm.base import LLMProvider
 from app.llm.call_log import llm_context
 from app.models import Company, CompanyState, JobPosting, PostingStatus, Preference
 from app.postings.evaluation import evaluate_fit, legitimacy_flags
-from app.postings.gates import gates_block, run_gates
+from app.postings.gates import gates_block, owner_targets, run_gates
 from app.postings.intake import (
     build_posting,
     content_hash,
@@ -161,7 +161,7 @@ def add_posting(
 
     posting = build_posting(llm, text=clean, url=url, source=source, json_ld=json_ld, extra=extra)
     posting.content_safety = safety
-    posting.gates = run_gates(posting.title, posting.location, posting.description_text)
+    posting.gates = run_gates(posting.title, posting.location, posting.description_text, *owner_targets(db))
     _match_company(db, posting)
     db.add(posting)
     db.flush()
@@ -264,7 +264,7 @@ def parse_and_evaluate(db: Session, llm: LLMProvider, posting: JobPosting) -> Jo
     posting.description_text = text
     posting.content_hash = content_hash(text)
     posting.extra = {**(posting.extra or {}), **(parsed.extra or {}), "parsed": True}
-    posting.gates = run_gates(posting.title, posting.location, posting.description_text)
+    posting.gates = run_gates(posting.title, posting.location, posting.description_text, *owner_targets(db))
     if not posting.company_id:
         _match_company(db, posting)
     check_posting_preferences(db, llm, posting)

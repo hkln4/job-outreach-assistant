@@ -47,10 +47,10 @@
     <h2>{{ t("profile_item.questions_title") }}</h2>
     <p class="hint">{{ t("profile_item.questions_hint") }}</p>
     {% if item.owner_facts %}
-      <ul>
+      <ul data-row id="owner-facts">
         {% for fact in item.owner_facts %}
           <li>{% if fact.question %}<span class="muted">{{ fact.question }}</span> — {% endif %}<strong>{{ fact.answer }}</strong>
-            <form method="post" action="/profile/items/{{ item.id }}/facts/{{ loop.index0 }}/delete" style="display:inline"><button type="submit" class="secondary">{{ t("common.delete") }}</button></form></li>
+            <form method="post" action="/profile/items/{{ item.id }}/facts/{{ loop.index0 }}/delete" style="display:inline" data-inline="swap"><button type="submit" class="secondary">{{ t("common.delete") }}</button></form></li>
         {% endfor %}
       </ul>
     {% endif %}

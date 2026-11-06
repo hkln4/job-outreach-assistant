@@ -32,7 +32,7 @@ def add_note(text: str = Form(...), db: Session = Depends(get_db)):
     if text.strip():
         db.add(StyleNote(text=text.strip()))
         db.commit()
-    return RedirectResponse(url="/style", status_code=303)
+    return RedirectResponse(url="/preferences#style-section", status_code=303)
 
 
 @router.post("/notes/{note_id}")
@@ -46,7 +46,7 @@ def update_note(note_id: int, text: str = Form(""), action: str = Form("save"), 
         elif text.strip():
             note.text = text.strip()
         db.commit()
-    return RedirectResponse(url="/style", status_code=303)
+    return RedirectResponse(url="/preferences#style-section", status_code=303)
 
 
 @router.post("/examples/{example_id}/delete")
@@ -55,4 +55,4 @@ def delete_example(example_id: int, db: Session = Depends(get_db)):
     if example is not None:
         db.delete(example)
         db.commit()
-    return RedirectResponse(url="/style", status_code=303)
+    return RedirectResponse(url="/preferences#style-section", status_code=303)

@@ -110,14 +110,68 @@ def language_gate(description: str) -> dict:
     return {"result": "pass", "quote": "", "note": "no extra language required", "posting_language": detect_language(text)}
 
 
-def run_gates(title: str, location: str, description: str) -> dict:
+def run_gates(title: str, location: str, description: str, target_roles: list[str] | None = None, skills: list[str] | None = None) -> dict:
     return {
+        "role": role_gate(title, description, target_roles, skills),
         "location": location_gate(location, description),
         "seniority": seniority_gate(title, description),
         "language": language_gate(description),
     }
 
 
+def owner_targets(db) -> tuple[list[str], list[str]]:
+    """The owner's target roles and core skill names, for the role gate."""
+    from app.models import Profile, TechSkill
+
+    profile = db.query(Profile).first()
+    skills = [s.name for s in db.query(TechSkill).filter(TechSkill.tier == "core", TechSkill.hidden.is_(False)).all()]
+    return (profile.target_roles if profile else []), skills
+
+
 def gates_block(gates: dict) -> bool:
-    """A rejected location blocks; gaps are shown, never auto-dismissed."""
-    return (gates.get("location") or {}).get("result") == "reject"
+    """A rejected location or a clearly unrelated role blocks the fit call;
+    gaps are shown, never auto-dismissed."""
+    return (gates.get("location") or {}).get("result") == "reject" or (gates.get("role") or {}).get("result") == "reject"
+
+
+# --- Role relevance (code): keeps sales, finance, HR ... postings out ---
+TECH_TITLE_RE = re.compile(
+    r"\b(engineer\w*|developer|scientist|data|machine learning|ml|ai|artificial intelligence|computer vision|"
+    r"deep learning|nlp|backend|back-end|software|devops|mlops|research\w*|analyst|analytics|python|"
+    r"mühendis\w*|muhendis\w*|geliştirici|gelistirici|yazılım|yazilim|veri|yapay zeka|görüntü|goruntu|araştırma\w*|arastirma\w*)\b",
+    re.IGNORECASE,
+)
+NON_TECH_TITLE_RE = re.compile(
+    r"\b(sales|satış|satis|account (manager|executive)|business development|accountant|accounting|muhasebe|finance|finans|"
+    r"hr|human resources|insan kaynakları|insan kaynaklari|recruiter|talent acquisition|marketing|pazarlama|"
+    r"customer (support|success|service)|müşteri (hizmet|temsilci)|call center|çağrı merkezi|legal|hukuk|lawyer|avukat|"
+    r"office (manager|assistant)|receptionist|resepsiyon|driver|şoför|sofor|warehouse|depo|logistics coordinator|"
+    r"graphic designer|grafik tasarım|content writer|copywriter|social media|sosyal medya|nurse|hemşire|cashier|kasiyer|"
+    r"technician|teknisyen|operator|operatör)\b",
+    re.IGNORECASE,
+)
+
+
+def role_gate(title: str, description: str, target_roles: list[str] | None = None, skills: list[str] | None = None) -> dict:
+    """pass / reject / ambiguous for whether a posting is the owner's kind of
+    job at all, with the deciding words. Reject only a clearly non-technical
+    title with nothing in the posting touching the owner's targets."""
+    from app.applications.synonyms import concepts_in, tokens
+
+    title = title or ""
+    target_text = " ".join(target_roles or [])
+    overlap = (concepts_in(f"{title} {description[:3000]}") & concepts_in(target_text + " machine learning computer vision backend data engineering"))
+    role_words = tokens(title) & tokens(target_text) - {"junior", "senior", "intern", "engineer", "specialist"}
+    skill_hits = [s for s in skills or [] if len(s) > 2 and re.search(rf"(?<!\w){re.escape(fold(s))}(?!\w)", fold(title))]
+    tech = TECH_TITLE_RE.search(title)
+    non_tech = NON_TECH_TITLE_RE.search(title)
+    if non_tech and not (tech or role_words or skill_hits):
+        return {"result": "reject", "quote": title, "note": f"not a technical role ({non_tech.group(0)})"}
+    if tech or role_words or skill_hits or overlap:
+        reason = (tech.group(0) if tech else "") or ", ".join(sorted(role_words) or skill_hits or sorted(overlap))
+        return {"result": "pass", "quote": title, "note": f"matches your targets ({reason})"}
+    return {"result": "ambiguous", "quote": title, "note": "no clear link to your target roles"}
+
+
+def is_relevant(gates: dict) -> bool:
+    return (gates.get("role") or {}).get("result") != "reject"

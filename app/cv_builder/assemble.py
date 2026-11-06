@@ -77,7 +77,7 @@ def _matches(text: str, keywords: list[str]) -> set[str]:
     return {k for k in keywords if fold(k) in folded or k in concepts}
 
 
-def assemble(db: Session, posting: JobPosting | None = None, company=None, certificates: bool | None = None) -> dict:
+def assemble(db: Session, posting: JobPosting | None = None, company=None, certificates: bool | None = None, include_drafts: bool = False) -> dict:
     """A selection for a GeneratedCV (ids and names only - the text comes
     from the bank and the base CV at render time)."""
     research = (company.research or {}) if company is not None else {}
@@ -94,12 +94,13 @@ def assemble(db: Session, posting: JobPosting | None = None, company=None, certi
             if evidence_status(s, selected_ids) == "ok" or s.manual
         ]
         matched = [s.name for s in candidates if _matches(s.name, keywords)]
-        rest = [s.name for s in candidates if s.name not in matched]
+        # general skills always; a niche tool only when the posting asks for it
+        rest = [s.name for s in candidates if s.name not in matched and s.tier == "core"]
         skills[group] = (matched + rest)[: MAX_SKILLS_PER_GROUP[group]]
 
     projects = []
     for project in db.query(CVProject).filter(CVProject.selected.is_(True)).all():
-        approved = [b for b in project.bullets if b.status == "approved"]
+        approved = [b for b in project.bullets if b.status == "approved" or include_drafts]
         if not approved:
             continue
         item = project.profile_item
@@ -126,6 +127,7 @@ def assemble(db: Session, posting: JobPosting | None = None, company=None, certi
         "bullet_ids": {str(p.id): [b.id for b in bullets] for _, p, bullets in chosen},
         "bullet_overrides": {},
         "certificates": certificates,
+        "include_drafts": include_drafts,
     }
 
 
