@@ -19,7 +19,7 @@ from app.models import (
     CV, Application, ApplicationState, CandidateStatus, Company, CompanyCandidate, CompanyState, JobPosting, PostingStatus,
     Preference, Profile,
 )
-from app.postings.gates import is_relevant
+from app.postings.filter import check_posting, owner_filter
 
 # How many rows of one kind the "today" list shows before "+N more".
 PER_KIND = 6
@@ -89,14 +89,15 @@ def dashboard(request: Request, checked: int = -1, replies: int = 0, bounces: in
         for application in overdue_applications(db)
     ]
 
+    rules = owner_filter(db)  # the same filter the postings page applies
     new_postings = [
         p for p in db.query(JobPosting).filter(JobPosting.status == PostingStatus.NEW, JobPosting.inbox.is_(False))
         .order_by(JobPosting.id.desc()).limit(100).all()
-        if is_relevant(p.gates or {}) and (p.fit or {}).get("verdict") not in ("weak", "blocked")
+        if check_posting(rules, p)["match"] and (p.fit or {}).get("verdict") not in ("weak", "blocked")
     ]
     inbox_count = sum(
         1 for p in db.query(JobPosting).filter(JobPosting.status == PostingStatus.NEW, JobPosting.inbox.is_(True)).all()
-        if is_relevant(p.gates or {})
+        if check_posting(rules, p)["match"]
     )
     candidates_waiting = db.query(func.count(CompanyCandidate.id)).filter(CompanyCandidate.status == CandidateStatus.PENDING).scalar() or 0
     month_costs = cost_summary(db)["by_month"].get(datetime.now(timezone.utc).strftime("%Y-%m"))
