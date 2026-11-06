@@ -186,6 +186,11 @@ All of v1 plus roadmap phases 0-7 are built (`docs/ROADMAP.md`). By area:
   re-importing skips repos that haven't changed and re-analyzes changed ones as a
   reviewable diff. The page lists what to do next. Deletes and row actions on
   every page happen in place.
+- **Layout**: the home page is one "Today" list, most urgent first (drafts to
+  review, no reply past the threshold, new postings that fit, companies ready
+  for a letter, then research and dealbreaker decisions), with one button per
+  row. Technopark import lives under **Companies**. The application page shows
+  the letter on the left and the checks, angles, evidence and sources beside it.
 - **LinkedIn research** (optional, off by default) - see
   [LinkedIn research](#linkedin-research-optional).
 - EN/TR interface; 367 passing tests (`tests/`).
@@ -419,5 +424,5 @@ app/
   web/                       routes + Jinja2 templates + i18n + a little JS
 scripts/                     DB init, Gmail smoke tests, hallucination eval, demo recorder
 docs/ROADMAP.md              phase specs and status
-tests/                       pytest suite (367 tests)
+tests/                       pytest suite (377 tests)
 ```

@@ -176,3 +176,17 @@ def test_postings_page_folds_irrelevant_ones():
         db.query(JobPosting).filter(JobPosting.title.like("Simp %")).delete(synchronize_session=False)
         db.commit()
         db.close()
+
+
+def test_today_list_orders_by_urgency_and_caps_each_kind():
+    from types import SimpleNamespace as NS
+
+    from app.web.routes.dashboard import PER_KIND, today_list
+
+    company = NS(id=1, name="Co")
+    review = [NS(id=i, company=company, target_position="ML") for i in range(PER_KIND + 2)]
+    posting = NS(id=5, title="ML Engineer", company=company, company_name="", fit={"verdict": "strong"})
+    todo = today_list(review, [], [posting], [company], [], [])
+    assert [g["kind"] for g in todo] == ["review", "posting", "draft"]
+    assert len(todo[0]["rows"]) == PER_KIND and todo[0]["more"] == 2
+    assert todo[2]["rows"][0]["action"] == "/companies/1/draft"

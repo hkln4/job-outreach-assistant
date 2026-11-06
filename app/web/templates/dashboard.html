@@ -2,184 +2,54 @@
 {% block title %}{{ t("dashboard.title") }}{% endblock %}
 {% block content %}
   <div class="dash-header">
-    <h1>{{ t("dashboard.title") }}</h1>
-    <a class="button-link" href="/companies">{{ t("dashboard.button.add_company") }}</a>
+    <h1>{{ t("dashboard.today") }}</h1>
+    <div class="row-actions">
+      {% if awaiting_count %}
+      <form method="post" action="/check-replies" data-loading-text="{{ t('loading.checking') }}">
+        <button type="submit" class="secondary">{{ t("dashboard.button.check_replies") }} ({{ awaiting_count }})</button>
+      </form>
+      {% endif %}
+      <a class="button-link" href="/companies">{{ t("dashboard.button.add_company") }}</a>
+    </div>
   </div>
-  <p class="hint"><a href="/funnel">{{ t("dashboard.stats_link") }}</a> · {{ t("dashboard.cost_this_month") }} ${{ "%.2f"|format(month_cost) }}</p>
+  <p class="hint">{{ total_companies }} {{ t("dashboard.stat.companies") }} · {{ applicable_count }} {{ t("dashboard.stat.applicable") }} · {{ total_applications }} {{ t("dashboard.stat.applications") }}
+    · <a href="/funnel">{{ t("dashboard.stats_link") }}</a> · {{ t("dashboard.cost_this_month") }} ${{ "%.2f"|format(month_cost) }}</p>
 
   {% if not setup_done %}
   <div class="card">
-    <h2>{{ t("dashboard.checklist_title") }}</h2>
-    <div class="checklist">
-      {% for step in checklist %}
-      <div class="checklist-item {{ 'done' if step.done else 'pending' }}">
-        <span class="checklist-dot">{{ "✓" if step.done else "" }}</span>
-        <a href="{{ step.href }}">{{ t("dashboard.checklist." ~ step.key) }}</a>
-      </div>
-      {% endfor %}
+    <div class="steps">
+      {% for step in checklist %}<a href="{{ step.href }}" class="step {{ 'done' if step.done else 'todo' }}">{{ "✓ " if step.done }}{{ t("dashboard.checklist." ~ step.key) }}</a>{% endfor %}
     </div>
   </div>
   {% endif %}
 
   {% if check_summary %}
-  <div class="card">
-    <p>
-      {{ check_summary.checked }} {{ t("dashboard.check_summary.checked") }} ·
-      {{ check_summary.replies }} {{ t("dashboard.check_summary.replies") }}
-      {% if check_summary.bounces %} · {{ check_summary.bounces }} {{ t("dashboard.check_summary.bounces") }}{% endif %}
-    </p>
-  </div>
+  <div class="card"><p>{{ check_summary.checked }} {{ t("dashboard.check_summary.checked") }} · {{ check_summary.replies }} {{ t("dashboard.check_summary.replies") }}{% if check_summary.bounces %} · {{ check_summary.bounces }} {{ t("dashboard.check_summary.bounces") }}{% endif %}</p></div>
   {% endif %}
 
-  {% if new_postings %}
-  <div class="section card">
-    <h2>{{ t("dashboard.section.new_postings") }} ({{ new_postings | length }})</h2>
-    <ul class="link-list">
-      {% for posting in new_postings %}
-        <li><a href="/postings/{{ posting.id }}">{{ posting.title or t("common.untitled") }}</a>
-          <span class="hint">{{ posting.company.name if posting.company else posting.company_name }} · {{ t("postings.source." ~ posting.source) }}</span>
-          {% set v = (posting.fit or {}).get("verdict") %}{% if v %}<span class="badge">{{ t("postings.verdict." ~ v) }}</span>{% endif %}</li>
+  {% for group in todo %}
+    <div class="rows-title">{{ t("dashboard.todo." ~ group.kind) }} ({{ group.count }})</div>
+    <div class="rows">
+      {% for row in group.rows %}
+      <div class="row">
+        <span class="row-main"><a href="{{ row.href }}"><strong>{{ row.title }}</strong></a>
+          {% if row.meta %}<span class="row-meta">{{ row.meta }}</span>{% endif %}
+          {% if row.badge %}<span class="badge">{{ t("postings.verdict." ~ row.badge) }}</span>{% endif %}</span>
+        <span class="row-actions">
+          {% if row.action %}
+          <form method="post" action="{{ row.action }}" data-loading-text="{{ t('loading.' ~ row.loading) }}"><button type="submit">{{ t("dashboard.todo_button." ~ group.kind) }}</button></form>
+          {% else %}<a class="button-link" href="{{ row.href }}">{{ t("dashboard.todo_button." ~ group.kind) }}</a>{% endif %}
+        </span>
+      </div>
       {% endfor %}
-    </ul>
-  </div>
-  {% endif %}
-
-  {% if awaiting_count %}
-  <div class="section card">
-    <h2>{{ t("dashboard.section.awaiting_reply") }} ({{ awaiting_count }})</h2>
-    <form method="post" action="/check-replies" data-loading-text="{{ t('loading.checking') }}">
-      <button type="submit" class="secondary">{{ t("dashboard.button.check_replies") }}</button>
-    </form>
-  </div>
-  {% endif %}
-
-  {% if overdue %}
-  <div class="section card">
-    <h2>{{ t("dashboard.section.overdue") }} ({{ overdue | length }})</h2>
-    <p class="hint">{{ t("dashboard.overdue_hint") }}</p>
-    <table class="table">
-      <tbody>
-        {% for row in overdue %}
-        <tr>
-          <td><a href="/applications/{{ row.application.id }}">{{ row.application.company.name }}</a></td>
-          <td class="muted">{{ row.application.target_position or t("common.untitled") }}</td>
-          <td class="muted cell-nowrap">{% if row.days_waiting is not none %}{{ row.days_waiting }} {{ t("dashboard.days_no_reply") }}{% endif %}</td>
-          <td class="row-action">
-            <form method="post" action="/applications/{{ row.application.id }}/follow-ups/draft" data-loading-text="{{ t('loading.drafting') }}">
-              <button type="submit">{{ t("dashboard.button.draft_follow_up") }}</button>
-            </form>
-          </td>
-          <td class="row-action"><a class="button-link secondary" href="/companies/{{ row.application.company.id }}">{{ t("dashboard.button.contacts") }}</a></td>
-          <td class="row-action">
-            <form method="post" action="/applications/{{ row.application.id }}/state">
-              <input type="hidden" name="state" value="NO_RESPONSE">
-              <button type="submit" class="secondary danger">{{ t("dashboard.button.mark_no_response") }}</button>
-            </form>
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-  {% endif %}
-
-  {% if pending_review %}
-  <div class="section card">
-    <h2>{{ t("dashboard.section.pending_review") }} ({{ pending_review | length }})</h2>
-    <table class="table">
-      <tbody>
-        {% for app in pending_review %}
-        <tr>
-          <td><a href="/applications/{{ app.id }}">{{ app.company.name }}</a></td>
-          <td class="muted">{{ app.target_position or t("common.untitled") }}</td>
-          <td class="row-action"><a class="button-link" href="/applications/{{ app.id }}">{{ t("dashboard.button.review") }}</a></td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-  {% endif %}
-
-  {% if ready_to_draft %}
-  <div class="section card">
-    <h2>{{ t("dashboard.section.ready_to_draft") }} ({{ ready_to_draft | length }})</h2>
-    <table class="table">
-      <tbody>
-        {% for company in ready_to_draft %}
-        <tr>
-          <td><a href="/companies/{{ company.id }}">{{ company.name }}</a></td>
-          <td class="row-action">
-            <form method="post" action="/companies/{{ company.id }}/draft" data-loading-text="{{ t('loading.drafting') }}">
-              <button type="submit">{{ t("dashboard.button.start_application") }}</button>
-            </form>
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-  {% endif %}
-
-  {% if needs_research %}
-  <div class="section card">
-    <h2>{{ t("dashboard.section.needs_research") }} ({{ needs_research | length }})</h2>
-    <table class="table">
-      <tbody>
-        {% for company in needs_research %}
-        <tr>
-          <td><a href="/companies/{{ company.id }}">{{ company.name }}</a></td>
-          <td class="row-action">
-            <form method="post" action="/companies/{{ company.id }}/research" data-loading-text="{{ t('loading.researching') }}">
-              <button type="submit">{{ t("company_detail.run_research") }}</button>
-            </form>
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-  {% endif %}
-
-  {% if blocked %}
-  <div class="section card">
-    <h2>{{ t("dashboard.section.blocked") }} ({{ blocked | length }})</h2>
-    <table class="table">
-      <tbody>
-        {% for company in blocked %}
-        <tr>
-          <td><a href="/companies/{{ company.id }}">{{ company.name }}</a></td>
-          <td class="row-action"><a class="button-link" href="/companies/{{ company.id }}">{{ t("dashboard.button.review") }}</a></td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-  {% endif %}
-
-  {% if not pending_review and not ready_to_draft and not needs_research and not blocked and not overdue %}
-  <div class="card">
-    <p class="empty-state">
-      {% if total_companies == 0 %}
-        {{ t("dashboard.empty_no_companies") }}
-      {% else %}
-        {{ t("dashboard.all_caught_up") }}
-      {% endif %}
-    </p>
-  </div>
-  {% endif %}
-
-  <div class="stat-grid">
-    <div class="stat-card">
-      <div class="stat-value">{{ total_companies }}</div>
-      <div class="stat-label">{{ t("dashboard.stat.companies") }}</div>
+      {% if group.more %}<div class="row"><span class="row-meta">+{{ group.more }} {{ t("dashboard.more") }} — <a href="{{ {'review': '/applications', 'overdue': '/applications', 'posting': '/postings'}.get(group.kind, '/companies') }}">{{ t("dashboard.see_all") }}</a></span></div>{% endif %}
     </div>
-    <div class="stat-card">
-      <div class="stat-value">{{ applicable_count }}</div>
-      <div class="stat-label">{{ t("dashboard.stat.applicable") }}</div>
-    </div>
-    <div class="stat-card">
-      <div class="stat-value">{{ total_applications }}</div>
-      <div class="stat-label">{{ t("dashboard.stat.applications") }}</div>
-    </div>
-  </div>
+  {% endfor %}
+  {% if candidates_waiting %}
+    <p class="hint"><a href="/discovery">{{ candidates_waiting }} {{ t("dashboard.candidates_waiting") }} →</a></p>
+  {% endif %}
+
+  {% if not todo %}
+  <div class="card"><p class="empty-state">{{ t("dashboard.empty_no_companies") if total_companies == 0 else t("dashboard.all_caught_up") }}</p></div>
+  {% endif %}
 {% endblock %}

@@ -22,7 +22,7 @@ from app.companies.dedup import find_existing_company
 from app.companies.workflow import research_company_safe
 from app.db import get_db
 from app.llm.base import LLMProvider
-from app.models import Application, Company, CompanyState
+from app.models import Application, CandidateStatus, Company, CompanyCandidate, CompanyState
 from app.web.deps import get_llm
 from app.web.i18n import get_lang, translator
 from app.web.render import render
@@ -77,6 +77,7 @@ def list_companies(
             "technoparks": technoparks,
             "filter_technopark": technopark,
             "filter_uncontacted": bool(uncontacted),
+            "candidates_waiting": db.query(CompanyCandidate).filter(CompanyCandidate.status == CandidateStatus.PENDING).count(),
         },
     )
 

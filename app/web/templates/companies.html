@@ -1,7 +1,10 @@
 {% extends "base.html" %}
 {% block title %}{{ t("companies.title") }}{% endblock %}
 {% block content %}
-  <h1>{{ t("companies.title") }}</h1>
+  <div class="dash-header">
+    <h1>{{ t("companies.title") }}</h1>
+    <a class="button-link secondary" href="/discovery">{{ t("companies.import_technoparks") }}{% if candidates_waiting %} · {{ candidates_waiting }} {{ t("companies.waiting") }}{% endif %}</a>
+  </div>
   <p class="hint">{{ t("companies.add_hint") }}</p>
 
   <form class="inline-form" id="add-company-form" method="post" action="/companies">

@@ -15,7 +15,14 @@ from app.applications.reply_check import check_all_awaiting, overdue_application
 from app.companies.workflow import has_unconfirmed_hard_exclusion, has_usable_research
 from app.db import get_db
 from app.llm.call_log import cost_summary
-from app.models import CV, Application, ApplicationState, Company, CompanyState, JobPosting, PostingStatus, Preference, Profile
+from app.models import (
+    CV, Application, ApplicationState, CandidateStatus, Company, CompanyCandidate, CompanyState, JobPosting, PostingStatus,
+    Preference, Profile,
+)
+from app.postings.gates import is_relevant
+
+# How many rows of one kind the "today" list shows before "+N more".
+PER_KIND = 6
 from app.web.render import render
 
 router = APIRouter(tags=["dashboard"])
@@ -82,16 +89,21 @@ def dashboard(request: Request, checked: int = -1, replies: int = 0, bounces: in
         for application in overdue_applications(db)
     ]
 
-    new_postings = (
-        db.query(JobPosting).filter(JobPosting.status == PostingStatus.NEW).order_by(JobPosting.id.desc()).limit(20).all()
-    )
+    new_postings = [
+        p for p in db.query(JobPosting).filter(JobPosting.status == PostingStatus.NEW).order_by(JobPosting.id.desc()).limit(100).all()
+        if is_relevant(p.gates or {}) and (p.fit or {}).get("verdict") not in ("weak", "blocked")
+    ]
+    candidates_waiting = db.query(func.count(CompanyCandidate.id)).filter(CompanyCandidate.status == CandidateStatus.PENDING).scalar() or 0
     month_costs = cost_summary(db)["by_month"].get(datetime.now(timezone.utc).strftime("%Y-%m"))
 
+    todo = today_list(pending_review, overdue, new_postings, ready_to_draft, needs_research, blocked)
     return render(
         templates,
         request,
         "dashboard.html",
         {
+            "todo": todo,
+            "candidates_waiting": candidates_waiting,
             "month_cost": month_costs["cost"] if month_costs else 0.0,
             "new_postings": new_postings,
             "total_companies": total_companies,
@@ -109,6 +121,24 @@ def dashboard(request: Request, checked: int = -1, replies: int = 0, bounces: in
             "check_summary": {"checked": checked, "replies": replies, "bounces": bounces} if checked >= 0 else None,
         },
     )
+
+
+def today_list(pending_review, overdue, new_postings, ready_to_draft, needs_research, blocked) -> list[dict]:
+    """One list of what to do now, most urgent first: drafts waiting for you,
+    applications past the reply threshold, new postings that fit, companies
+    ready for a letter, then companies that need research or a decision."""
+    groups = [
+        ("review", [{"title": a.company.name, "meta": a.target_position, "href": f"/applications/{a.id}", "link": True} for a in pending_review]),
+        ("overdue", [{"title": r["application"].company.name, "meta": f'{r["days_waiting"]}d' if r["days_waiting"] is not None else "",
+                      "href": f'/applications/{r["application"].id}', "action": f'/applications/{r["application"].id}/follow-ups/draft',
+                      "loading": "drafting"} for r in overdue]),
+        ("posting", [{"title": p.title or "—", "meta": p.company.name if p.company else p.company_name, "href": f"/postings/{p.id}",
+                      "link": True, "badge": (p.fit or {}).get("verdict")} for p in new_postings]),
+        ("draft", [{"title": c.name, "meta": "", "href": f"/companies/{c.id}", "action": f"/companies/{c.id}/draft", "loading": "drafting"} for c in ready_to_draft]),
+        ("research", [{"title": c.name, "meta": "", "href": f"/companies/{c.id}", "action": f"/companies/{c.id}/research", "loading": "researching"} for c in needs_research]),
+        ("blocked", [{"title": c.name, "meta": "", "href": f"/companies/{c.id}", "link": True} for c in blocked]),
+    ]
+    return [{"kind": kind, "rows": rows[:PER_KIND], "more": max(0, len(rows) - PER_KIND), "count": len(rows)} for kind, rows in groups if rows]
 
 
 @router.post("/check-replies")
