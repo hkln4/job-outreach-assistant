@@ -165,10 +165,10 @@ def test_postings_page_folds_irrelevant_ones():
         db.add_all([relevant, unrelated])
         db.commit()
         client = TestClient(app, headers={"Sec-Fetch-Site": "same-origin"})
-        page = client.get("/postings?view=mine").text
+        page = client.get("/postings?seg=kept").text
         assert "Simp ML Engineer" in page and "Simp Sales Manager" not in page
-        assert "Simp Sales Manager" in client.get("/postings?view=mine&show_all=1").text
-        client.post("/postings/dismiss-irrelevant")
+        assert "Simp Sales Manager" in client.get("/postings?seg=kept&show_all=1").text
+        client.post("/postings/bulk", data={"action": "dismiss_hidden", "seg": "kept"})
         db.refresh(unrelated)
         db.refresh(relevant)
         assert unrelated.status == PostingStatus.DISMISSED and relevant.status == PostingStatus.NEW
@@ -198,21 +198,21 @@ def test_found_postings_wait_in_the_inbox_until_kept():
     init_db()
     db = SessionLocal()
     try:
-        found = JobPosting(title="Simp Inbox CV Engineer", url="https://x.example/i1", description_text="", status=PostingStatus.NEW,
+        found = JobPosting(title="Simp Inbox CV Engineer", url="https://x.example/i1", location="Ankara", description_text="", status=PostingStatus.NEW,
                            source="ats_api", inbox=True, gates={"role": {"result": "pass"}})
-        other = JobPosting(title="Simp Inbox Data Engineer", url="https://x.example/i2", description_text="", status=PostingStatus.NEW,
+        other = JobPosting(title="Simp Inbox Data Engineer", url="https://x.example/i2", location="Ankara", description_text="", status=PostingStatus.NEW,
                            source="ats_api", inbox=True, gates={"role": {"result": "pass"}})
         db.add_all([found, other])
         db.commit()
         client = TestClient(app)
-        assert "Simp Inbox CV Engineer" in client.get("/postings?view=inbox").text
-        assert "Simp Inbox CV Engineer" not in client.get("/postings?view=mine").text
+        assert "Simp Inbox CV Engineer" in client.get("/postings?seg=new").text
+        assert "Simp Inbox CV Engineer" not in client.get("/postings?seg=kept").text
         client.post(f"/postings/{found.id}/triage", data={"action": "keep"})
         client.post(f"/postings/{other.id}/triage", data={"action": "dismiss"})
         db.expire_all()
         assert found.inbox is False and found.status == PostingStatus.NEW
         assert other.status == PostingStatus.DISMISSED
-        assert "Simp Inbox CV Engineer" in client.get("/postings?view=mine").text
+        assert "Simp Inbox CV Engineer" in client.get("/postings?seg=kept").text
     finally:
         db.query(JobPosting).filter(JobPosting.title.like("Simp Inbox %")).delete(synchronize_session=False)
         db.commit()

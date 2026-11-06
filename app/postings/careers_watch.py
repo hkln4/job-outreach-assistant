@@ -23,7 +23,8 @@ from app.llm.call_log import llm_context, set_llm_ids
 from app.llm.json_utils import parse_json_object
 from app.llm.untrusted import UNTRUSTED_RULE, wrap_untrusted
 from app.models import Company, CompanyState, JobPosting, PostingStatus
-from app.postings.gates import detect_language, owner_targets, role_gate, run_gates
+from app.postings.filter import check, owner_filter
+from app.postings.gates import detect_language, owner_targets, run_gates
 from app.postings.intake import content_hash, find_existing, normalize_posting_url
 
 LIST_SYSTEM_PROMPT = """List the job postings on this careers page. For each: "title" as written, \
@@ -117,9 +118,13 @@ def watch_company(db: Session, llm: LLMProvider, company: Company, client: httpx
             links.append(link)
     new = 0
     targets, skills = owner_targets(db)
+    rules = owner_filter(db)
     for listed in _list_postings(llm, text, links):
-        if role_gate(listed["title"], listed["details"], targets, skills)["result"] == "reject":
-            continue  # not the owner's kind of job
+        # a careers page is the company's own: its location stands in when
+        # the listing names none (remote is still read from the details)
+        verdict = check(rules, title=listed["title"], location=company.location or "", description=listed["details"], unknown_location_ok=True)
+        if not verdict["match"]:
+            continue  # outside the owner's filter
         posting_url = listed["url"] if listed["url"] in links else ""
         description = f"{listed['title']}\n{listed['details']}".strip()
         digest_posting = content_hash(description)

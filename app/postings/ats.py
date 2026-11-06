@@ -22,7 +22,8 @@ from sqlalchemy.orm import Session
 from app.companies.fetch import BROWSER_HEADERS
 from app.companies.sanitize import SanitizeReport, sanitize_text
 from app.models import AtsBoard, JobPosting, PostingStatus
-from app.postings.gates import detect_language, location_gate, owner_targets, role_gate, run_gates
+from app.postings.filter import check, owner_filter
+from app.postings.gates import detect_language, location_gate, owner_targets, run_gates
 from app.postings.intake import content_hash, find_existing, normalize_posting_url
 
 SUPPORTED_PROVIDERS = ("greenhouse", "lever", "ashby", "smartrecruiters")
@@ -144,21 +145,17 @@ def read_board(provider: str, token: str, client: httpx.Client | None = None) ->
             client.close()
 
 
-def import_board_postings(db: Session, board: AtsBoard, postings: list[dict], include_ids: set[str] | None = None) -> dict:
-    """Accepted postings (and the ambiguous ones the owner picked) become
-    JobPostings from the board's own fields. Returns counts."""
-    counts = {"imported": 0, "already_known": 0, "ambiguous": 0, "rejected": 0, "not_relevant": 0}
+def import_board_postings(db: Session, board: AtsBoard, postings: list[dict], rules: dict | None = None) -> dict:
+    """Postings that match the owner's filter (app/postings/filter.py) become
+    JobPostings waiting in "new for you"; the rest are only counted, by the
+    first rule they miss, so the owner sees what was left out and why."""
+    rules = owner_filter(db) if rules is None else rules
+    counts = {"read": len(postings), "imported": 0, "already_known": 0, "role": 0, "level": 0, "location": 0}
     targets, skills = owner_targets(db)
     for job in postings:
-        if role_gate(job["title"], job["description"], targets, skills)["result"] == "reject":
-            counts["not_relevant"] += 1  # sales, finance, HR ... never imported
-            continue
-        result = job["location_gate"]["result"]
-        if result == "reject":
-            counts["rejected"] += 1
-            continue
-        if result in ("ambiguous", "unknown") and job["external_id"] not in (include_ids or set()):
-            counts["ambiguous"] += 1
+        verdict = check(rules, title=job["title"], location=job["location"], description=job["description"], work_mode=job.get("work_mode", ""))
+        if not verdict["match"]:
+            counts[verdict["fails"][0]["rule"]] += 1
             continue
         report = SanitizeReport()
         text = sanitize_text(f"{job['title']}\n{job['location']}\n\n{job['description']}", report)
@@ -176,7 +173,7 @@ def import_board_postings(db: Session, board: AtsBoard, postings: list[dict], in
             title=job["title"],
             company_name=board.company_name,
             location=job["location"],
-            work_mode=job.get("work_mode") or "unknown",
+            work_mode=verdict["work_mode"],
             language=detect_language(text),
             description_text=text,
             date_posted=job.get("posted", ""),

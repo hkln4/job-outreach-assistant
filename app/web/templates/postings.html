@@ -3,98 +3,99 @@
 {% block content %}
   <div class="dash-header">
     <h1>{{ t("postings.title") }}</h1>
-    <div class="row-actions">
-      <form method="post" action="/postings/careers-watch" data-loading-text="{{ t('loading.checking') }}" title="{{ t('postings.watch_hint') }}">
-        <button type="submit" class="secondary">{{ t("postings.watch_button") }}</button>
-      </form>
-      <a class="button-link secondary" href="/postings/boards">{{ t("postings.boards_link") }}</a>
-    </div>
+    <form method="post" action="/postings/check" data-loading-text="{{ t('loading.checking') }}"><button type="submit">{{ t("postings.check_all") }}</button></form>
   </div>
   {% if error %}<div class="warning"><p>{{ error }}</p></div>{% endif %}
-  {% if found %}<div class="card"><p><strong>{{ found[0] }}</strong>: {{ found[1] }} {{ t("postings.found_new") }} · {{ found[2] }} {{ t("boards.already_known") }} · {{ found[3] }} {{ t("postings.found_outside") }} · {{ found[4] }} {{ t("boards.not_relevant") }}</p></div>{% endif %}
-  {% if watch %}<div class="card"><p>{{ t("postings.watch_summary") }} {{ watch[0] }} · {{ t("postings.watch_changed") }} {{ watch[1] }} · {{ t("postings.watch_new") }} {{ watch[2] }} · {{ t("postings.watch_skipped") }} {{ watch[3] }}</p></div>{% endif %}
+  {% if report %}
+  <div class="notice">
+    {% for line in report %}
+      <p><strong>{{ line.source }}</strong>:
+      {% if line.error %}{{ line.error }}
+      {% elif line.boards_found is defined %}{{ line.boards_found }} {{ t("postings.report.boards_found") }}
+      {% else %}{{ line.read }} {{ t("postings.report.read") }}, {{ line.imported }} {{ t("postings.report.new") }}{% if line.already_known %}, {{ line.already_known }} {{ t("postings.report.known") }}{% endif %}{% if line.role %}, {{ line.role }} {{ t("postings.report.role") }}{% endif %}{% if line.level %}, {{ line.level }} {{ t("postings.report.level") }}{% endif %}{% if line.location %}, {{ line.location }} {{ t("postings.report.location") }}{% endif %}{% endif %}</p>
+    {% endfor %}
+  </div>
+  {% endif %}
 
-  <details class="card add-posting" {{ "open" if not inbox_count and not postings }}>
-    <summary><strong>+ {{ t("postings.add_title") }}</strong> <span class="hint">{{ t("postings.add_short") }}</span></summary>
-    <form method="post" action="/postings" data-loading-text="{{ t('loading.reading_posting') }}">
-      <input type="url" name="url" placeholder="{{ t('postings.field.url') }} https://...">
-      <textarea name="text" rows="4" placeholder="{{ t('postings.field.text_placeholder') }}"></textarea>
-      <p class="hint">{{ t("postings.add_hint") }}{% if not linkedin_enabled %} {{ t("postings.linkedin_off") }}{% endif %}</p>
-      <button type="submit">{{ t("postings.add_button") }}</button>
-    </form>
-  </details>
+  <form method="post" action="/postings/filter" class="filter-bar">
+    <input type="hidden" name="seg" value="{{ seg }}">
+    <label>{{ t("postings.filter.roles") }}<input type="text" name="roles" value="{{ rules.roles | join(', ') }}"></label>
+    <label>{{ t("postings.filter.exclude") }}<input type="text" name="exclude" value="{{ rules.exclude | join(', ') }}"></label>
+    <fieldset><legend>{{ t("postings.filter.levels") }}</legend>
+      {% for lv in levels %}<label class="inline"><input type="checkbox" name="levels" value="{{ lv }}" {% if lv in rules.levels %}checked{% endif %}> {{ t("postings.level." ~ lv) }}</label>{% endfor %}
+    </fieldset>
+    <fieldset><legend>{{ t("postings.filter.location") }}</legend>
+      <input type="text" name="home_city" value="{{ rules.home_city }}" class="short" aria-label="{{ t('postings.filter.home_city') }}">
+      <label class="inline"><input type="checkbox" name="elsewhere_remote_only" value="1" {% if rules.elsewhere_remote_only %}checked{% endif %}> {{ t("postings.filter.remote_elsewhere") }}</label>
+    </fieldset>
+    <button type="submit" class="secondary">{{ t("postings.filter.apply") }}</button>
+  </form>
 
-  <div data-row id="postings-lists">
   <nav class="tabs">
-    <a href="/postings?view=inbox" class="{{ 'active' if view == 'inbox' }}">{{ t("postings.tab.inbox") }}{% if inbox_count %} <span class="count">{{ inbox_count }}</span>{% endif %}</a>
-    <a href="/postings?view=mine" class="{{ 'active' if view == 'mine' }}">{{ t("postings.tab.mine") }}</a>
+    {% for key in segments %}<a href="/postings?seg={{ key }}" class="{{ 'active' if seg == key }}">{{ t("postings.seg." ~ key) }}{% if counts[key] %} <span class="count">{{ counts[key] }}</span>{% endif %}</a>{% endfor %}
   </nav>
 
-  {% if view == "inbox" %}
-    <p class="hint">{{ t("postings.inbox_hint") }}</p>
-    {% if inbox %}
-    <div class="toolbar">
-      <form method="post" action="/postings/inbox"><input type="hidden" name="action" value="keep"><button type="submit" class="secondary">{{ t("postings.keep_all") }}</button></form>
-      <form method="post" action="/postings/inbox" onsubmit="return confirm('{{ t('postings.dismiss_all_confirm') }}');"><input type="hidden" name="action" value="dismiss"><button type="submit" class="secondary danger">{{ t("postings.dismiss_all") }}</button></form>
-      {% if inbox_hidden %}<span class="hint">{{ inbox_hidden }} {{ t("postings.inbox_hidden") }} <a href="/postings?view=inbox&show_all=1">{{ t("postings.show_them") }}</a></span>{% endif %}
-    </div>
+  {% if seg == "sources" %}
+    <p class="hint">{{ t("postings.sources_hint") }}</p>
     <div class="rows">
-      {% for posting in inbox %}
-      <div class="row" data-row id="inbox-{{ posting.id }}">
-        <span class="row-main">
-          <a href="/postings/{{ posting.id }}"><strong>{{ posting.title or t("common.untitled") }}</strong></a>
-          <span class="row-meta">{{ posting.company.name if posting.company else (posting.company_name or "—") }} · {{ posting.location or "—" }} · {{ t("postings.source." ~ posting.source) }}</span>
-          {% include "_gate_problems.html" %}
-        </span>
+      {% for b in boards %}
+      <div class="row" data-row id="board-{{ b.id }}">
+        <span class="row-main"><strong>{{ b.company_name or b.token }}</strong> <span class="row-meta">{{ b.provider }}</span>
+          {% if b.last_result %}<span class="row-meta">{% if b.last_result.error %}{{ b.last_result.error }}{% else %}{{ t("postings.report.last") }}: {{ b.last_result.imported }} {{ t("postings.report.new") }}{% endif %}</span>{% endif %}</span>
         <span class="row-actions">
-          <form method="post" action="/postings/{{ posting.id }}/triage" data-inline="swap">
-            <button type="submit" name="action" value="keep">{{ t("postings.keep") }}</button>
-            <button type="submit" name="action" value="dismiss" class="secondary" title="{{ t('postings.dismiss') }}">✕</button>
-          </form>
+          <form method="post" action="/postings/boards/{{ b.id }}/read" data-loading-text="{{ t('loading.checking') }}"><button type="submit" class="secondary">{{ t("boards.read") }}</button></form>
+          <form method="post" action="/postings/boards/{{ b.id }}/delete" data-inline="remove" onsubmit="return confirm('{{ t('postings.delete_board_confirm') }}');"><button type="submit" class="link-button">{{ t("common.delete") }}</button></form>
         </span>
       </div>
-      {% endfor %}
+      {% else %}<p class="empty-state">{{ t("boards.empty") }}</p>{% endfor %}
     </div>
-    {% else %}
-      <p class="empty-state">{{ t("postings.inbox_empty") }}</p>
-    {% endif %}
-  {% else %}
-    <div class="toolbar">
-      <form method="get" action="/postings">
-        <input type="hidden" name="view" value="mine">
-        <select name="status" onchange="this.form.submit()">
-          <option value="open" {% if filter_status == 'open' %}selected{% endif %}>{{ t("postings.filter.open") }}</option>
-          {% for st in statuses %}<option value="{{ st.value }}" {% if filter_status == st.value %}selected{% endif %}>{{ t("postings.status." ~ st.value) }}</option>{% endfor %}
-          <option value="all" {% if filter_status == 'all' %}selected{% endif %}>{{ t("postings.filter.all") }}</option>
-        </select>
+    <p class="hint">{{ careers_companies }} {{ t("postings.careers_count") }}</p>
+    <div class="grid-2 section">
+      <form method="post" action="/postings/boards" class="stack">
+        <h3>{{ t("boards.add_title") }}</h3>
+        <label>{{ t("boards.provider") }}<select name="provider">{% for p in providers %}<option value="{{ p }}">{{ p }}</option>{% endfor %}</select></label>
+        <label>{{ t("boards.token") }}<input type="text" name="token" required></label>
+        <label>{{ t("common.company") }}<input type="text" name="company_name"></label>
+        <button type="submit" class="secondary">{{ t("boards.add_button") }}</button>
       </form>
-      {% if hidden_count %}
-      <span class="hint">{{ hidden_count }} {{ t("postings.hidden_not_relevant") }}
-        {% if not show_all %}<a href="/postings?view=mine&status={{ filter_status }}&show_all=1">{{ t("postings.show_them") }}</a>{% else %}<a href="/postings?view=mine&status={{ filter_status }}">{{ t("postings.hide_them") }}</a>{% endif %}</span>
-      <form method="post" action="/postings/dismiss-irrelevant"><button type="submit" class="secondary">{{ t("postings.dismiss_irrelevant") }}</button></form>
-      {% endif %}
+      <form method="post" action="/postings" data-loading-text="{{ t('loading.reading_posting') }}" class="stack">
+        <h3>{{ t("postings.add_title") }}</h3>
+        <label>{{ t("postings.field.url") }}<input type="url" name="url"></label>
+        <label>{{ t("postings.field.text") }}<textarea name="text" rows="4"></textarea></label>
+        <button type="submit" class="secondary">{{ t("postings.add_button") }}</button>
+      </form>
     </div>
-    <div class="rows">
-      {% for posting in postings %}
-      <div class="row">
-        <span class="row-main">
-          <a href="/postings/{{ posting.id }}"><strong>{{ posting.title or t("common.untitled") }}</strong></a>
-          <span class="row-meta">{{ posting.company.name if posting.company else (posting.company_name or "—") }} · {{ posting.location or "—" }}</span>
-          {% set v = (posting.fit or {}).get("verdict") %}
-          {% if v %}<span class="badge {{ 'badge-state' if v == 'strong' else ('badge-hard' if v == 'blocked' else '') }}">{{ t("postings.verdict." ~ v) }}</span>{% endif %}
-          {% include "_gate_problems.html" %}
-          {% if posting.preference_check %}<span class="badge {{ 'badge-hard' if posting.preference_check | selectattr('severity', 'equalto', 'hard') | list else 'badge-soft' }}">{{ t("postings.pref_flags") }}</span>{% endif %}
-          {% if posting.legitimacy_flags %}<span class="badge badge-soft">{{ posting.legitimacy_flags | length }} {{ t("postings.flags") }}</span>{% endif %}
-        </span>
-        <span class="row-actions">
-          {% if posting.status.value != "NEW" %}<span class="badge">{{ t("postings.status." ~ posting.status.value) }}</span>{% endif %}
-          <a class="button-link secondary" href="/postings/{{ posting.id }}">{{ t("postings.open") }}</a>
-        </span>
+    <form method="post" action="/postings/boards/discover" data-loading-text="{{ t('loading.searching') }}" class="section">
+      <span class="hint">{{ t("boards.search_hint") }}</span>
+      <button type="submit" class="secondary" {{ "disabled" if not search_enabled }}>{{ t("boards.search_button") }}</button>
+    </form>
+  {% else %}
+    <div class="master-detail">
+      <div class="master">
+        {% if hidden %}<p class="hint">{{ hidden }} {{ t("postings.hidden_by_filter") }}
+          <a href="/postings?seg={{ seg }}&show_all={{ 0 if show_all else 1 }}">{{ t("postings.hide_them") if show_all else t("postings.show_them") }}</a></p>{% endif %}
+        {% if seg == "new" and rows %}
+        <div class="toolbar">
+          <form method="post" action="/postings/bulk"><input type="hidden" name="seg" value="new"><input type="hidden" name="action" value="keep_all"><button type="submit" class="secondary">{{ t("postings.keep_all") }}</button></form>
+          <form method="post" action="/postings/bulk" onsubmit="return confirm('{{ t('postings.dismiss_all_confirm') }}');"><input type="hidden" name="seg" value="new"><input type="hidden" name="action" value="dismiss_all"><button type="submit" class="link-button">{{ t("postings.dismiss_all") }}</button></form>
+        </div>
+        {% endif %}
+        <div class="rows">
+          {% for posting, verdict in rows %}
+          <a class="row row-link{{ ' is-active' if open_id == posting.id }}" href="/postings?seg={{ seg }}&open={{ posting.id }}{{ '&show_all=1' if show_all }}">
+            <span class="row-main"><strong>{{ posting.title or t("common.untitled") }}</strong>
+              <span class="row-meta">{{ posting.company.name if posting.company else (posting.company_name or "—") }}</span>
+              <span class="row-meta">{{ posting.location or "" }}</span>
+              {% set v = (posting.fit or {}).get("verdict") %}{% if v %}<span class="badge {{ 'badge-state' if v == 'strong' else '' }}">{{ t("postings.verdict." ~ v) }}</span>{% endif %}
+              {% if not verdict.match %}<span class="badge badge-soft">{{ t("postings.outside_filter") }}</span>{% endif %}</span>
+          </a>
+          {% else %}<p class="empty-state">{{ t("postings.empty_" ~ seg) }}</p>{% endfor %}
+        </div>
       </div>
-      {% else %}
-      <p class="empty-state">{{ t("postings.empty") }}</p>
-      {% endfor %}
+      <div class="detail">
+        {% if posting is defined %}{% include "_posting_body.html" %}
+        {% else %}<p class="empty-state">{{ t("postings.pick_one") }}</p>{% endif %}
+      </div>
     </div>
   {% endif %}
-  </div>
 {% endblock %}

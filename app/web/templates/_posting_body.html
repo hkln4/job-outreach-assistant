@@ -1,0 +1,119 @@
+{# One posting: shown in the postings page's right-hand pane and on its own page. #}
+<div data-pane-content data-pane-url="/postings/{{ posting.id }}">
+  <div class="pane-head">
+    <div>
+      <h2 class="pane-title">{{ posting.title or t("common.untitled") }}</h2>
+      <p class="meta-line">
+        <span>{% if posting.company %}<a href="/companies/{{ posting.company.id }}">{{ posting.company.name }}</a>{% else %}{{ posting.company_name or "—" }}{% endif %}</span>
+        <span>{{ posting.location or t("postings.no_location") }}</span>
+        {% if filter_check.work_mode != "unknown" %}<span>{{ t("postings.mode." ~ filter_check.work_mode) }}</span>{% endif %}
+        <span>{{ t("postings.source." ~ posting.source) }}</span>
+        {% if posting.url %}<a href="{{ posting.url }}" target="_blank" rel="noopener">{{ t("postings.open_original") }}</a>{% endif %}
+      </p>
+    </div>
+  </div>
+
+  <div class="pane-actions">
+    {% if posting.status.value not in ("EXPIRED", "APPLIED", "DISMISSED") %}
+    <form method="post" action="/postings/{{ posting.id }}/draft" data-loading-text="{{ t('loading.drafting') }}">
+      <button type="submit" {{ "disabled" if hard_blocked or not posting.company }}>{{ t("postings.draft_button") }}</button>
+    </form>
+    {% endif %}
+    {% if posting.inbox or posting.status.value in ("DISMISSED", "EXPIRED") %}
+    <form method="post" action="/postings/{{ posting.id }}/triage"><input type="hidden" name="action" value="keep"><button type="submit" class="secondary">{{ t("postings.keep") }}</button></form>
+    {% endif %}
+    {% if posting.status.value not in ("DISMISSED", "APPLIED") %}
+    <form method="post" action="/postings/{{ posting.id }}/triage"><input type="hidden" name="action" value="dismiss"><button type="submit" class="secondary">{{ t("postings.dismiss") }}</button></form>
+    {% endif %}
+    <form method="post" action="/postings/{{ posting.id }}/evaluate" data-loading-text="{{ t('loading.analyzing') }}">
+      <button type="submit" class="link-button">{{ t("postings.parse_evaluate") if (posting.extra or {}).get("parsed") == false else (t("postings.reevaluate") if (posting.fit or {}).scores else t("postings.evaluate")) }}</button>
+    </form>
+  </div>
+  {% if not posting.company %}<p class="hint">{{ t("postings.need_company") }}</p>{% endif %}
+
+  {% if not filter_check.match %}
+  <p class="notice">{{ t("postings.outside_filter") }}: {% for f in filter_check.fails %}{{ t("postings.rule." ~ f.rule) }} ({{ f.why }}){% if not loop.last %}, {% endif %}{% endfor %}</p>
+  {% endif %}
+  {% if error == "expired" or posting.status.value == "EXPIRED" %}
+    <div class="warning">{{ t("postings.expired_title") }} {{ (posting.extra or {}).get("expired") or ((posting.extra or {}).get("expiry_check") or {}).get("reason") }}</div>
+  {% endif %}
+  {% if error == "company" %}<div class="warning">{{ t("postings.need_company") }}</div>{% endif %}
+
+  {% if posting.proposed_company and not posting.company %}
+  <div class="warning">
+    <p>{{ t("postings.proposed_company") }} <strong>{{ posting.proposed_company.name }}</strong>{% if posting.proposed_company.website_url %} ({{ posting.proposed_company.website_url }}){% endif %}</p>
+    <form method="post" action="/postings/{{ posting.id }}/approve-company"><button type="submit" class="secondary">{{ t("postings.approve_company") }}</button></form>
+  </div>
+  {% endif %}
+
+  {% if posting.preference_check %}
+  <div class="{{ 'warning' if hard_blocked else 'notice' }}">
+    <strong>{{ t("postings.pref_title") }}</strong>
+    {% for f in posting.preference_check %}
+      <p><span class="badge {{ 'badge-hard' if f.severity == 'hard' else 'badge-soft' }}">{{ f.description or (preferences[f.preference_id].description if f.preference_id in preferences else '') }}</span>
+        <q>{{ f.evidence_snippet }}</q>{% if not f.source_url_verified %} <span class="muted">{{ t("company_detail.source_unverified") }}</span>{% endif %}</p>
+    {% endfor %}
+    {% if hard_blocked %}<form method="post" action="/postings/{{ posting.id }}/confirm-hard"><button type="submit" class="secondary">{{ t("postings.confirm_hard") }}</button></form>{% endif %}
+  </div>
+  {% endif %}
+
+  {% set fit = posting.fit or {} %}
+  {% if fit.verdict or fit.error %}
+  <section class="pane-section">
+    <h3>{{ t("postings.fit_title") }} {% if fit.verdict %}<span class="badge {{ 'badge-state' if fit.verdict == 'strong' else '' }}">{{ t("postings.verdict." ~ fit.verdict) }}</span>{% endif %}</h3>
+    {% if fit.error %}<p class="muted">{{ fit.error }}</p>{% endif %}
+    {% if fit.strengths or fit.gaps %}
+    <div class="grid-2">
+      <div><h4>{{ t("postings.strengths") }}</h4><ul>{% for p in fit.strengths %}<li>{{ p.point }}{% if p.posting_quote %} <q>{{ p.posting_quote }}</q>{% endif %}</li>{% endfor %}</ul></div>
+      <div><h4>{{ t("postings.gaps") }}</h4><ul>{% for p in fit.gaps %}<li>{{ p.point }}{% if p.posting_quote %} <q>{{ p.posting_quote }}</q>{% endif %}</li>{% endfor %}</ul></div>
+    </div>
+    {% endif %}
+    {% if fit.scores %}
+    <details><summary>{{ t("postings.fit_details") }}</summary>
+      <table class="table">
+        <thead><tr><th>{{ t("postings.dimension") }}</th><th>{{ t("postings.score") }}</th><th>{{ t("postings.posting_says") }}</th></tr></thead>
+        <tbody>{% for dim, row in fit.scores.items() %}<tr><td>{{ t("postings.dim." ~ dim) }}</td><td>{{ row.score }}</td><td>{% if row.posting_quote %}<q>{{ row.posting_quote }}</q>{% endif %} <span class="hint">{{ row.note }}</span></td></tr>{% endfor %}</tbody>
+      </table>
+    </details>
+    {% endif %}
+  </section>
+  {% endif %}
+
+  {% set problems = (posting.gates or {}).items() | selectattr("1.result", "in", ["reject", "gap", "ambiguous"]) | list %}
+  {% if problems or posting.legitimacy_flags %}
+  <section class="pane-section">
+    <h3>{{ t("postings.check_title") }}</h3>
+    <ul>
+      {% for name, gate in problems %}<li><strong>{{ t("postings.gate." ~ name) }}</strong>: {{ gate.note }}{% if gate.quote %} <q>{{ gate.quote }}</q>{% endif %}</li>{% endfor %}
+      {% for f in posting.legitimacy_flags %}<li><strong>{{ t("postings.flag." ~ f.kind) }}</strong>: {{ f.detail }}</li>{% endfor %}
+    </ul>
+  </section>
+  {% endif %}
+
+  <section class="pane-section">
+    <h3>{{ t("postings.requirements") }}</h3>
+    {% if posting.requirements %}<ul>{% for r in posting.requirements %}<li>{{ r }}</li>{% endfor %}</ul>
+    {% else %}<p class="hint">{{ t("postings.not_parsed_hint") }}</p>{% endif %}
+    {% if posting.nice_to_have %}<h4>{{ t("postings.nice_to_have") }}</h4><ul>{% for r in posting.nice_to_have %}<li>{{ r }}</li>{% endfor %}</ul>{% endif %}
+    <details {{ "open" if not posting.requirements }}><summary>{{ t("postings.full_text") }}</summary><div class="posting-text">{{ posting.description_text }}</div></details>
+  </section>
+
+  {% if copies %}
+  <section class="pane-section">
+    <h3>{{ t("postings.copies_title") }}</h3>
+    {% for c in (posting.extra or {}).get("copies", []) %}
+      <p><a href="/postings?open={{ c.id }}">{{ c.url }}</a>{% if c.aggregator %} <span class="badge">{{ t("postings.aggregator") }}</span>{% endif %}</p>
+    {% endfor %}
+  </section>
+  {% endif %}
+
+  <details class="pane-section">
+    <summary class="hint">{{ t("postings.more_actions") }}</summary>
+    <div class="toolbar">
+      <form method="post" action="/postings/{{ posting.id }}/expiry" data-loading-text="{{ t('loading.checking') }}"><button type="submit" class="secondary">{{ t("postings.check_expiry") }}</button></form>
+      <form method="post" action="/postings/{{ posting.id }}/status" class="toolbar">
+        <select name="status" onchange="this.form.requestSubmit()">{% for st in statuses %}<option value="{{ st.value }}" {% if posting.status == st %}selected{% endif %}>{{ t("postings.status." ~ st.value) }}</option>{% endfor %}</select>
+      </form>
+    </div>
+  </details>
+</div>

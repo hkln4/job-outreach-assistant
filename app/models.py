@@ -166,6 +166,9 @@ class OwnerSettings(Base):
     base_cv_id: Mapped[int | None] = mapped_column(nullable=True)
     # Repos the owner deleted from his profile: never listed or suggested again.
     excluded_repos: Mapped[list] = mapped_column(JSON, default=list)
+    # The posting filter (app/postings/filter.py): roles, excluded words,
+    # levels, home city, remote-only elsewhere. Empty = the defaults.
+    posting_filter: Mapped[dict] = mapped_column(JSON, default=dict)
     cv_template_approved: Mapped[bool] = mapped_column(default=False)
 
 

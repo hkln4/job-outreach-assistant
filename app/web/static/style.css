@@ -1092,3 +1092,24 @@ mark.flag { background: var(--warning-soft); color: inherit; border-bottom: 2px 
 .reject-toggle > form { top: auto; bottom: calc(100% + 0.5rem); left: auto; right: 0; width: min(520px, 80vw); }
 .dash-header .row-actions { display: flex; flex-wrap: nowrap; gap: 0.4rem; align-items: center; }
 .dash-header .row-actions form { margin: 0; }
+/* Postings: filter on top, list and the open posting side by side */
+.filter-bar { display: flex; flex-wrap: wrap; gap: 0.6rem 1rem; align-items: flex-end; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 0.75rem; }
+.filter-bar label { display: flex; flex-direction: column; font-size: 0.85rem; color: var(--fg-muted); gap: 0.2rem; margin: 0; }
+.filter-bar label.inline { flex-direction: row; align-items: center; color: var(--fg); }
+.filter-bar input[type="text"] { min-width: 16rem; margin: 0; }
+.filter-bar input.short { min-width: 7rem; width: 7rem; }
+.filter-bar fieldset { border: 0; padding: 0; margin: 0; display: flex; gap: 0.6rem; align-items: center; flex-wrap: wrap; }
+.filter-bar legend { font-size: 0.85rem; color: var(--fg-muted); padding: 0; margin-bottom: 0.2rem; }
+.master-detail { display: grid; grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.4fr); gap: 1.25rem; align-items: start; }
+.master-detail .detail { position: sticky; top: 0.75rem; max-height: calc(100vh - 1.5rem); overflow-y: auto; border-left: 1px solid var(--border); padding-left: 1.25rem; }
+@media (max-width: 1000px) { .master-detail { grid-template-columns: 1fr; } .master-detail .detail { position: static; max-height: none; border: 0; padding: 0; } }
+a.row-link { text-decoration: none; color: inherit; }
+a.row-link:hover, a.row-link.is-active { background: var(--surface-2); }
+.notice { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 0.6rem 0.8rem; margin: 0.75rem 0; }
+.meta-line { display: flex; flex-wrap: wrap; gap: 0.25rem 1rem; color: var(--fg-muted); margin: 0.2rem 0 0.6rem; }
+.pane-title { margin: 0; }
+.pane-actions { display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center; margin-bottom: 0.75rem; }
+.pane-actions form { margin: 0; }
+.pane-section { margin: 1rem 0; }
+.posting-text { white-space: pre-wrap; font-size: 0.9rem; }
+.stack { display: grid; gap: 0.5rem; }
