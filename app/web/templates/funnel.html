@@ -1,10 +1,5 @@
 {% extends "base.html" %}
-{% block title %}{{ t("funnel.title") }}  <div class="section card">
-    <h2>{{ t("costs.title") }}</h2>
-    <p>${{ "%.2f"|format(costs.total.cost) }} · {{ costs.total.calls }} {{ t("costs.calls") }}{% for month, row in costs.by_month.items() %}{% if loop.first %} · {{ month }}: ${{ "%.2f"|format(row.cost) }}{% endif %}{% endfor %}
-      · <a href="/costs">{{ t("funnel.cost_details") }}</a></p>
-  </div>
-{% endblock %}
+{% block title %}{{ t("funnel.title") }}{% endblock %}
 {% block content %}
   <h1>{{ t("funnel.title") }}</h1>
   <p class="hint">{{ t("funnel.hint") }}</p>

@@ -44,7 +44,7 @@
     (function () {
       const form = document.getElementById("github-form");
       const out = document.getElementById("selected-count");
-      function update() { out.textContent = form.querySelectorAll('input[name="selected_repos"]:checked').length + " ✓"; }
+      function update() { out.textContent = form.querySelectorAll('input[name="selected_repos"]:checked').length + " {{ t('repo.selected_count') }}"; }
       form.addEventListener("change", update); update();
     })();
   </script>

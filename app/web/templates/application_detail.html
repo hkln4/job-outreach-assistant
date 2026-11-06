@@ -86,7 +86,7 @@
     {% endif %}
   </div>
   {% elif application.state.value == "PENDING_APPROVAL" %}
-  <div class="checks checks-ok"><span class="badge badge-state">✓</span> {{ t("application_detail.checks_clear") }}</div>
+  <div class="checks checks-ok">{{ t("application_detail.checks_clear") }}</div>
   {% endif %}
 
   {% if not application.cover_letter_body %}
@@ -118,9 +118,9 @@
       </div>
       {% if application.state.value == "PENDING_APPROVAL" %}
       <div class="email-toolbar">
-        <span id="unsaved-badge" class="badge badge-soft" hidden>⚠ {{ t("application_detail.unsaved_badge") }}</span>
+        <span id="unsaved-badge" class="badge badge-soft" hidden>{{ t("application_detail.unsaved_badge") }}</span>
         <details class="edit-toggle">
-          <summary title="{{ t('application_detail.edit_summary') }}">✎ {{ t("common.edit") }}</summary>
+          <summary title="{{ t('application_detail.edit_summary') }}">{{ t("common.edit") }}</summary>
           <form method="post" action="/applications/{{ application.id }}/edit" id="edit-form-{{ application.id }}" data-loading-text="{{ t('loading.saving') }}">
             <button type="submit">{{ t("common.save") }}</button>
           </form>
@@ -146,7 +146,7 @@
         <summary>{{ t("application_detail.button.reject") }}</summary>
         <form method="post" action="/applications/{{ application.id }}/reject" data-loading-text="{{ t('loading.regenerating') }}">
           <textarea name="feedback" rows="1" required placeholder="{{ t('application_detail.field.feedback_placeholder') }}" autofocus></textarea>
-          <button type="submit" title="{{ t('application_detail.button.reject_confirm') }}" aria-label="{{ t('application_detail.button.reject_confirm') }}">↑</button>
+          <button type="submit" title="{{ t('application_detail.button.reject_confirm') }}" >{{ t('application_detail.button.reject_confirm') }}</button>
         </form>
       </details>
     </div>
@@ -173,7 +173,7 @@
     {% for angle in notes0.angles %}
       <div class="evidence">
         {% if loop.index0 == (notes0.angle_index or 0) %}<span class="badge badge-state">{{ t("angles.current") }}</span>{% endif %}
-        <q>{{ angle.company_hook }}</q> <a href="{{ angle.hook_url }}" target="_blank" rel="noopener">↗</a>
+        <q>{{ angle.company_hook }}</q> <a href="{{ angle.hook_url }}" target="_blank" rel="noopener">{{ t("common.source") }}</a>
         <br>{{ angle.bridge }} <span class="muted">· E{{ angle.owner_evidence_id }} · {{ angle.position }}</span>
         {% if loop.index0 != (notes0.angle_index or 0) %}
         <form method="post" action="/applications/{{ application.id }}/angle" data-loading-text="{{ t('loading.regenerating') }}">
@@ -197,7 +197,7 @@
         {% if e.used %}<span class="badge badge-state">{{ t("application_detail.evidence_used") }}</span>{% endif %}
         {% if excluded %}<span class="badge badge-soft">{{ t("application_detail.evidence_excluded") }}</span>{% endif %}
         <strong>{{ e.source_ref }}</strong> <span class="muted">· {{ e.source_type }}</span>
-        {% if e.source_url %}<a href="{{ e.source_url }}" target="_blank" rel="noopener">↗</a>{% endif %}
+        {% if e.source_url %}<a href="{{ e.source_url }}" target="_blank" rel="noopener">{{ t("common.source") }}</a>{% endif %}
         {% if e.purpose %}<br>{{ e.purpose }}{% endif %}
         {% if e.why %}<br><em>{{ t("application_detail.evidence_why") }} {{ e.why }}</em>{% endif %}
         {% if application.state.value == "PENDING_APPROVAL" %}

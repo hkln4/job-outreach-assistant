@@ -149,13 +149,18 @@ All of v1 plus roadmap phases 0-7 are built (`docs/ROADMAP.md`). By area:
   SmartRecruiters) with a Turkey location filter, or let the careers-page watch
   find new ones (robots.txt respected, LLM only when a page changed). Gates by
   code (role relevance, location, experience, language), fit with quotes,
-  legitimacy flags, expiry check before drafting. Clearly unrelated roles
-  (sales, finance, HR ...) are never imported from boards or careers pages;
-  anything else that fails the role gate or fits weakly is folded away on the
-  page, one click dismisses them all. Postings found automatically (boards,
-  careers watch) wait under "New for you" until you keep or dismiss them; only
-  kept and pasted ones are in "Your postings". Board discovery uses Tavily search, only to find
-  board slugs.
+  legitimacy flags, expiry check before drafting. Board discovery uses Tavily
+  search, only to find board slugs.
+- **Posting filter** (top of `/postings`, saved as you edit): roles (any of,
+  with aliases - "ml" also matches "machine learning", "swe" "software
+  engineer", Turkish titles too), words that never appear, levels, and a
+  location rule (your city in any work mode, elsewhere remote only). Boards and
+  careers pages import only matches; the rest are counted by the rule they miss
+  ("48 read, 3 new, 30 other roles, 7 wrong level, 3 outside your location
+  rule"). Found postings wait under "New" until you keep or dismiss them. The
+  page is one screen: the filter, New / Kept / Applied / Dismissed / Sources
+  tabs, the list on the left and the open posting on the right; boards,
+  pasting a posting and board search live in the Sources tab.
 - **Drafting and review**: angle (a quoted company hook + one of your records)
   -> the letter as plain text on the draft model -> a metadata call, with style
   rules and examples, recipient-aware tone and an app-written signature and
@@ -191,7 +196,9 @@ All of v1 plus roadmap phases 0-7 are built (`docs/ROADMAP.md`). By area:
 - **Layout**: the home page is one "Today" list, most urgent first (drafts to
   review, no reply past the threshold, new postings that fit, companies ready
   for a letter, then research and dealbreaker decisions), with one button per
-  row. Technopark import lives under **Companies**. The application page is one
+  row. Navigation is one top bar. Companies open on the same page too (the
+  list on the left, the company on the right). Technopark import lives under
+  **Companies**. The application page is one
   column: what to check first, the letter with every unverified sentence
   highlighted in place (click it to edit), a send bar that stays in view, and
   the reasoning, angles, evidence and sources in tabs below.

@@ -509,7 +509,7 @@ def test_row_buttons_decide_one_candidate_in_place():
         db.close()
 
     page = client.get(f"/discovery?source_id={source_id}").text
-    assert 'class="row-decide"' in page and "✓" in page and "✕" in page
+    assert 'class="row-decide"' in page and 'value="approve"' in page and 'value="reject"' in page
     assert 'name="candidate_ids" type="checkbox"' not in page and 'type="checkbox" name="candidate_ids"' not in page
 
     r = client.post(

@@ -1,3 +1,34 @@
-{# Writing style: standing rules + good examples (shown on Settings). #}
+{# Writing style: standing rules + good examples (Settings page and /style). #}
 <div id="style">
+  <div class="section card">
+    <h2>{{ t("style.notes_title") }} ({{ notes | length }})</h2>
+    {% for note in notes %}
+      <form method="post" action="/style/notes/{{ note.id }}" class="inline-form">
+        <input type="text" name="text" value="{{ note.text }}" {% if not note.active %}class="muted"{% endif %}>
+        <button type="submit" name="action" value="save" class="secondary">{{ t("common.save") }}</button>
+        <button type="submit" name="action" value="toggle" class="secondary">{{ t("style.deactivate") if note.active else t("style.activate") }}</button>
+        <button type="submit" name="action" value="delete" class="secondary danger">{{ t("common.delete") }}</button>
+      </form>
+    {% else %}
+      <p class="muted">{{ t("style.no_notes") }}</p>
+    {% endfor %}
+    <form method="post" action="/style/notes" class="inline-form">
+      <input type="text" name="text" required placeholder="{{ t('style.note_placeholder') }}">
+      <button type="submit">{{ t("style.add_note") }}</button>
+    </form>
+  </div>
+
+  <div class="section card">
+    <h2>{{ t("style.examples_title") }} ({{ examples | length }})</h2>
+    {% for e in examples %}
+      <div class="evidence">
+        <strong>{{ e.subject }}</strong> <span class="muted">· {{ e.language }}{% if e.target_role %} · {{ e.target_role }}{% endif %}</span>
+        {% if e.application_id %}<a href="/applications/{{ e.application_id }}">{{ t("nav.applications") }} #{{ e.application_id }}</a>{% endif %}
+        <details><summary>{{ t("style.show_letter") }}</summary><pre class="facts">{{ e.body }}</pre></details>
+        <form method="post" action="/style/examples/{{ e.id }}/delete"><button type="submit" class="secondary danger">{{ t("common.delete") }}</button></form>
+      </div>
+    {% else %}
+      <p class="muted">{{ t("style.no_examples") }}</p>
+    {% endfor %}
+  </div>
 </div>

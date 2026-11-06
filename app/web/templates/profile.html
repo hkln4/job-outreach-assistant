@@ -88,7 +88,7 @@
           {% if item.extracted.get("parse_error") %}<form method="post" action="/profile/items/{{ item.id }}/retry" data-loading-text="{{ t('loading.analyzing') }}"><button type="submit" class="secondary">{{ t("common.retry") }}</button></form>{% endif %}
           <form method="post" action="/profile/items/{{ item.id }}/delete" data-inline="remove"
                 onsubmit="return confirm('{{ t('profile.delete_confirm_repo') if item.source_type == 'github_repo' else t('profile.delete_confirm') }}');">
-            <button type="submit" class="secondary danger" title="{{ t('common.delete') }}">✕</button>
+            <button type="submit" class="link-button">{{ t('common.delete') }}</button>
           </form>
         </span>
       </div>

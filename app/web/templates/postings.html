@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% block title %}{{ t("postings.title") }}{% endblock %}
 {% block content %}
+  <div data-ajax-scope data-base="/postings" id="postings-scope">
   <div class="dash-header">
     <h1>{{ t("postings.title") }}</h1>
     <form method="post" action="/postings/check" data-loading-text="{{ t('loading.checking') }}"><button type="submit">{{ t("postings.check_all") }}</button></form>
@@ -17,7 +18,7 @@
   </div>
   {% endif %}
 
-  <form method="post" action="/postings/filter" class="filter-bar">
+  <form method="post" action="/postings/filter" class="filter-bar" data-autosubmit>
     <input type="hidden" name="seg" value="{{ seg }}">
     <label>{{ t("postings.filter.roles") }}<input type="text" name="roles" value="{{ rules.roles | join(', ') }}"></label>
     <label>{{ t("postings.filter.exclude") }}<input type="text" name="exclude" value="{{ rules.exclude | join(', ') }}"></label>
@@ -28,11 +29,11 @@
       <input type="text" name="home_city" value="{{ rules.home_city }}" class="short" aria-label="{{ t('postings.filter.home_city') }}">
       <label class="inline"><input type="checkbox" name="elsewhere_remote_only" value="1" {% if rules.elsewhere_remote_only %}checked{% endif %}> {{ t("postings.filter.remote_elsewhere") }}</label>
     </fieldset>
-    <button type="submit" class="secondary">{{ t("postings.filter.apply") }}</button>
+    <noscript><button type="submit" class="secondary">{{ t("postings.filter.apply") }}</button></noscript>
   </form>
 
   <nav class="tabs">
-    {% for key in segments %}<a href="/postings?seg={{ key }}" class="{{ 'active' if seg == key }}">{{ t("postings.seg." ~ key) }}{% if counts[key] %} <span class="count">{{ counts[key] }}</span>{% endif %}</a>{% endfor %}
+    {% for key in segments %}<a href="/postings?seg={{ key }}" data-swap class="{{ 'active' if seg == key }}">{{ t("postings.seg." ~ key) }}{% if counts[key] %} <span class="count">{{ counts[key] }}</span>{% endif %}</a>{% endfor %}
   </nav>
 
   {% if seg == "sources" %}
@@ -73,7 +74,7 @@
     <div class="master-detail">
       <div class="master">
         {% if hidden %}<p class="hint">{{ hidden }} {{ t("postings.hidden_by_filter") }}
-          <a href="/postings?seg={{ seg }}&show_all={{ 0 if show_all else 1 }}">{{ t("postings.hide_them") if show_all else t("postings.show_them") }}</a></p>{% endif %}
+          <a data-swap href="/postings?seg={{ seg }}&show_all={{ 0 if show_all else 1 }}">{{ t("postings.hide_them") if show_all else t("postings.show_them") }}</a></p>{% endif %}
         {% if seg == "new" and rows %}
         <div class="toolbar">
           <form method="post" action="/postings/bulk"><input type="hidden" name="seg" value="new"><input type="hidden" name="action" value="keep_all"><button type="submit" class="secondary">{{ t("postings.keep_all") }}</button></form>
@@ -82,7 +83,7 @@
         {% endif %}
         <div class="rows">
           {% for posting, verdict in rows %}
-          <a class="row row-link{{ ' is-active' if open_id == posting.id }}" href="/postings?seg={{ seg }}&open={{ posting.id }}{{ '&show_all=1' if show_all }}">
+          <a data-swap class="row row-link{{ ' is-active' if open_id == posting.id }}" href="/postings?seg={{ seg }}&open={{ posting.id }}{{ '&show_all=1' if show_all }}">
             <span class="row-main"><strong>{{ posting.title or t("common.untitled") }}</strong>
               <span class="row-meta">{{ posting.company.name if posting.company else (posting.company_name or "—") }}</span>
               <span class="row-meta">{{ posting.location or "" }}</span>
@@ -98,4 +99,5 @@
       </div>
     </div>
   {% endif %}
+  </div>
 {% endblock %}

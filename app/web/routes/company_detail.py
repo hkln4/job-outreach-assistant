@@ -94,6 +94,31 @@ def _days_since(moment: datetime | None) -> int | None:
     return (datetime.now(timezone.utc) - moment).days
 
 
+def company_context(db: Session, company: Company, linkedin_not_found: bool = False) -> dict:
+    """Everything the company body needs - its own page and the companies
+    page's right-hand pane render the same thing."""
+    applications = db.query(Application).filter(Application.company_id == company.id).order_by(Application.id.desc()).all()
+    contacts = db.query(Contact).filter(Contact.company_id == company.id).order_by(Contact.id.desc()).all()
+    # "Contacted before" note (section 9 dedup, surfaced BEFORE drafting/sending)
+    last_contacted = None
+    for application in applications:
+        if application.state in SENT_STATES and application.sent_at is not None:
+            if last_contacted is None or application.sent_at > last_contacted.sent_at:
+                last_contacted = application
+    return {
+        "company": company,
+        "applications": applications,
+        "contacts": contacts,
+        "blocked": has_unconfirmed_hard_exclusion(company),
+        "research_usable": has_usable_research(company),
+        "last_contacted": last_contacted,
+        "last_contacted_days": _days_since(last_contacted.sent_at) if last_contacted else None,
+        "suggested_people": _suggested_people(company, contacts),
+        "linkedin_enabled": get_settings().linkedin_research_enabled,
+        "linkedin_not_found": linkedin_not_found,
+    }
+
+
 @router.get("")
 def company_detail(
     request: Request,
@@ -102,38 +127,7 @@ def company_detail(
     db: Session = Depends(get_db),
 ):
     company = _company_or_404(db, company_id)
-    applications = (
-        db.query(Application)
-        .filter(Application.company_id == company_id)
-        .order_by(Application.id.desc())
-        .all()
-    )
-    contacts = db.query(Contact).filter(Contact.company_id == company_id).order_by(Contact.id.desc()).all()
-
-    # "Contacted before" note (section 9 dedup, surfaced BEFORE drafting/sending)
-    last_contacted = None
-    for application in applications:
-        if application.state in SENT_STATES and application.sent_at is not None:
-            if last_contacted is None or application.sent_at > last_contacted.sent_at:
-                last_contacted = application
-
-    return render(
-        templates,
-        request,
-        "company_detail.html",
-        {
-            "company": company,
-            "applications": applications,
-            "contacts": contacts,
-            "blocked": has_unconfirmed_hard_exclusion(company),
-            "research_usable": has_usable_research(company),
-            "last_contacted": last_contacted,
-            "last_contacted_days": _days_since(last_contacted.sent_at) if last_contacted else None,
-            "suggested_people": _suggested_people(company, contacts),
-            "linkedin_enabled": get_settings().linkedin_research_enabled,
-            "linkedin_not_found": bool(linkedin_not_found),
-        },
-    )
+    return render(templates, request, "company_detail.html", company_context(db, company, bool(linkedin_not_found)))
 
 
 @router.post("/research")

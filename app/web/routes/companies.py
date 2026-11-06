@@ -11,6 +11,8 @@ JSON + a rendered table row, the page stays put and shows per-company progress
 instead of redirecting away mid-research. The redirect branch is kept as a
 no-JS fallback.
 """
+from urllib.parse import urlencode
+
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
@@ -23,6 +25,7 @@ from app.companies.workflow import research_company_safe
 from app.db import get_db
 from app.llm.base import LLMProvider
 from app.models import Application, CandidateStatus, Company, CompanyCandidate, CompanyState
+from app.web.routes.company_detail import company_context
 from app.web.deps import get_llm
 from app.web.i18n import get_lang, translator
 from app.web.render import render
@@ -49,6 +52,7 @@ def list_companies(
     request: Request,
     technopark: str = "",
     uncontacted: int = 0,
+    open: int | None = None,
     db: Session = Depends(get_db),
 ):
     """Company list with the outreach-CRM filters: by technopark and by
@@ -78,6 +82,9 @@ def list_companies(
             "filter_technopark": technopark,
             "filter_uncontacted": bool(uncontacted),
             "candidates_waiting": db.query(CompanyCandidate).filter(CompanyCandidate.status == CandidateStatus.PENDING).count(),
+            **(company_context(db, opened) if (opened := db.get(Company, open) if open else None) else {}),
+            "open_id": open if open else None,
+            "list_query": urlencode({k: v for k, v in (("technopark", technopark), ("uncontacted", "1" if uncontacted else "")) if v}),
         },
     )
 

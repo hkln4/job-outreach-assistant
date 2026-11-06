@@ -6,11 +6,14 @@
 (function () {
   const I18N = JSON.parse(document.getElementById("companies-i18n").textContent);
 
-  const tbody = document.getElementById("companies-tbody");
+  // looked up each time: the list can be swapped in place (one-page view)
+  const tbodyEl = () => document.getElementById("companies-tbody");
 
   function insertRow(rowHtml) {
     const emptyRow = document.getElementById("companies-empty-row");
     if (emptyRow) emptyRow.remove();
+    const tbody = tbodyEl();
+    if (!tbody) return;
     tbody.insertAdjacentHTML("afterbegin", rowHtml);
   }
 

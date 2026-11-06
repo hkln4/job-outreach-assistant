@@ -6,7 +6,7 @@
   <div class="steps">
     <span class="step {{ 'done' if settings.cv_template_approved else 'todo' }}">{{ t("cvb.step.template") }}</span>
     <span class="step {{ 'done' if progress.projects else 'todo' }}">{{ t("cvb.step.projects") }} {{ progress.projects }}</span>
-    <span class="step {{ 'done' if progress.approved and not progress.drafts else 'todo' }}">{{ t("cvb.step.bullets") }} {{ progress.approved }}✓ · {{ progress.drafts }} {{ t("cvb.status.draft") }}</span>
+    <span class="step {{ 'done' if progress.approved and not progress.drafts else 'todo' }}">{{ t("cvb.step.bullets") }} {{ progress.approved }} {{ t("cvb.status.approved") }}, {{ progress.drafts }} {{ t("cvb.status.draft") }}</span>
   </div>
   {% if consistency %}
   <div class="warning"><strong>{{ t("cvb.consistency_title") }}</strong>
@@ -41,8 +41,8 @@
               <form method="post" action="/cv-builder/skills" data-inline="swap" class="chip-form">
                 <input type="hidden" name="skill_id" value="{{ s.id }}">
                 <span class="chip {{ 'chip-warn' if status != 'ok' }}" title="{% for e in s.evidence %}{{ e.kind }}: {{ e.ref }}&#10;{% endfor %}{% if status != 'ok' %}{{ t('cvb.evidence.' ~ status) }}{% endif %}">{{ s.name }}
-                  <button type="submit" name="action" value="tier" class="link-button" title="{{ t('cvb.make_specific') }}">↓</button>
-                  <button type="submit" name="action" value="toggle" class="link-button" title="{{ t('cvb.hide') }}">✕</button></span>
+                  <button type="submit" name="action" value="tier" class="link-button" >{{ t('cvb.make_specific_short') }}</button>
+                  <button type="submit" name="action" value="toggle" class="link-button" >{{ t('cvb.hide') }}</button></span>
               </form>
             {% else %}<span class="muted">—</span>{% endfor %}
           </div>
@@ -53,8 +53,8 @@
                 <form method="post" action="/cv-builder/skills" data-inline="swap" class="chip-form">
                   <input type="hidden" name="skill_id" value="{{ s.id }}">
                   <span class="chip chip-muted" title="{% for e in s.evidence %}{{ e.kind }}: {{ e.ref }}&#10;{% endfor %}">{{ s.name }}
-                    <button type="submit" name="action" value="tier" class="link-button" title="{{ t('cvb.make_core') }}">↑</button>
-                    <button type="submit" name="action" value="toggle" class="link-button" title="{{ t('cvb.hide') }}">✕</button></span>
+                    <button type="submit" name="action" value="tier" class="link-button" >{{ t('cvb.make_core_short') }}</button>
+                    <button type="submit" name="action" value="toggle" class="link-button" >{{ t('cvb.hide') }}</button></span>
                 </form>
               {% endfor %}
             </div>
@@ -79,7 +79,7 @@
             <select name="cv_id" onchange="this.form.submit()">{% for cv in cvs %}<option value="{{ cv.id }}" {% if base_cv and base_cv.id == cv.id %}selected{% endif %}>{{ cv.name }}</option>{% endfor %}</select>
           </label>
         </form>
-        <p class="hint">{{ t("cvb.locked_hint") }} {{ locked.education | length }} {{ t("cvb.education") }} · {{ locked.experience | length }} {{ t("cvb.experience") }} · {{ locked.certificates | length }} {{ t("cvb.certificates") }}{% if not locked.experience and not locked.education %} · ⚠ {{ t("cvb.no_entries") }}{% endif %}</p>
+        <p class="hint">{{ t("cvb.locked_hint") }} {{ locked.education | length }} {{ t("cvb.education") }} · {{ locked.experience | length }} {{ t("cvb.experience") }} · {{ locked.certificates | length }} {{ t("cvb.certificates") }}{% if not locked.experience and not locked.education %} · {{ t("cvb.no_entries") }}{% endif %}</p>
         <p class="hint">{{ t("cvb.template_hint_short") }} <a href="/cv-builder/base-pdf" target="_blank" rel="noopener">{{ t("cvb.open_base") }}</a></p>
         {% if not settings.cv_template_approved %}<form method="post" action="/cv-builder/template/approve"><button type="submit">{{ t("cvb.approve_template") }}</button></form>{% endif %}
       </details>

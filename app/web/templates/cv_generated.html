@@ -53,7 +53,7 @@
             <form method="post" action="/cv-builder/cvs/{{ generated.id }}/approve"><button type="submit">{{ t("cvb.approve_attach") }}</button></form>
           {% elif generated.status == "approved" %}<span class="badge badge-state">{{ t("cvb.status.approved") }}</span>{% endif %}
         </div>
-        {% for c in ats.checks or [] if not c.passed %}<p class="hint">✗ {{ t("cvb.check." ~ c.name) }} {{ c.detail }}</p>{% endfor %}
+        {% for c in ats.checks or [] if not c.passed %}<p class="hint">{{ t("cvb.check." ~ c.name) }} {{ c.detail }}</p>{% endfor %}
       </div>
       <iframe src="/cv-builder/cvs/{{ generated.id }}/pdf#view=FitH&toolbar=0" data-live-preview="/cv-builder/cvs/{{ generated.id }}/pdf" class="pdf-frame" title="CV"></iframe>
     </div>

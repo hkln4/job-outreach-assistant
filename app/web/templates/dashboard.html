@@ -12,13 +12,18 @@
       <a class="button-link" href="/companies">{{ t("dashboard.button.add_company") }}</a>
     </div>
   </div>
-  <p class="hint">{{ total_companies }} {{ t("dashboard.stat.companies") }} · {{ applicable_count }} {{ t("dashboard.stat.applicable") }} · {{ total_applications }} {{ t("dashboard.stat.applications") }}
-    · <a href="/funnel">{{ t("dashboard.stats_link") }}</a> · {{ t("dashboard.cost_this_month") }} ${{ "%.2f"|format(month_cost) }}</p>
+  <p class="meta-line">
+    <span>{{ total_companies }} {{ t("dashboard.stat.companies_short") }}</span>
+    <span>{{ applicable_count }} {{ t("dashboard.stat.applicable_short") }}</span>
+    <span>{{ total_applications }} {{ t("dashboard.stat.applications_short") }}</span>
+    <span>{{ t("dashboard.cost_this_month") }} ${{ "%.2f"|format(month_cost) }}</span>
+    <a href="/funnel">{{ t("dashboard.stats_link") }}</a>
+  </p>
 
   {% if not setup_done %}
   <div class="card">
     <div class="steps">
-      {% for step in checklist %}<a href="{{ step.href }}" class="step {{ 'done' if step.done else 'todo' }}">{{ "✓ " if step.done }}{{ t("dashboard.checklist." ~ step.key) }}</a>{% endfor %}
+      {% for step in checklist %}<a href="{{ step.href }}" class="step {{ 'done' if step.done else 'todo' }}">{{ t("dashboard.checklist." ~ step.key) }}</a>{% endfor %}
     </div>
   </div>
   {% endif %}

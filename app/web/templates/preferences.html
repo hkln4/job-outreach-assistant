@@ -1,9 +1,5 @@
 {% extends "base.html" %}
-{% block title %}{{ t("preferences.title") }}  <details class="section" id="style-section">
-    <summary><strong>{{ t("style.title") }}</strong> <span class="hint">{{ t("style.hint") }}</span></summary>
-    {% include "_style_section.html" %}
-  </details>
-{% endblock %}
+{% block title %}{{ t("preferences.title") }}{% endblock %}
 {% block content %}
   <h1>{{ t("preferences.title") }}</h1>
   <p class="hint">{{ t("preferences.hint") }}</p>
@@ -12,30 +8,33 @@
     <h2>{{ t("preferences.language.title") }}</h2>
     <p class="hint">{{ t("preferences.language.hint") }}</p>
     <label>{{ t("preferences.language.label") }}
-      <select name="email_language">
+      <select name="email_language" onchange="this.form.submit()">
         <option value="" {% if not email_language %}selected{% endif %}>{{ t("preferences.language.auto") }}</option>
         {% for code in email_languages %}
           <option value="{{ code }}" {% if email_language == code %}selected{% endif %}>{{ t("preferences.language." ~ code) }}</option>
         {% endfor %}
       </select>
     </label>
-    <button type="submit">{{ t("preferences.language.save") }}</button>
+    <noscript><button type="submit">{{ t("preferences.language.save") }}</button></noscript>
   </form>
 
   <form class="card" method="post" action="/preferences/identity" id="identity">
-    <h2>{{ t("preferences.identity.title") }}</h2>
+    <h2>{{ t("preferences.identity.heading") }}</h2>
     <p class="hint">{{ t("preferences.identity.hint") }}</p>
-    {% if saved %}<p>✓ {{ t("profile_item.saved") }}</p>{% endif %}
+    {% if saved %}<p>{{ t("profile_item.saved") }}</p>{% endif %}
+    <div class="field-grid">
     {% for field in identity_fields %}
       <label>{{ t("preferences.identity." ~ field) }}
         <input type="text" name="{{ field }}" value="{{ typed[field] }}" placeholder="{{ detected.get(field) or (t('preferences.identity.portfolio_placeholder') if field == 'portfolio_url' else '') }}">
         {% if not typed[field] and detected.get(field) %}<span class="hint">{{ t("preferences.identity.from_cv") }}</span>{% endif %}
       </label>
     {% endfor %}
-    <button type="submit">{{ t("common.save") }}</button>
+    </div>
+    <button type="submit" class="secondary">{{ t("common.save") }}</button>
   </form>
 
   <form class="card" method="post" action="/preferences">
+    <div class="field-grid">
     <h2>{{ t("preferences.add_title") }}</h2>
     <label>{{ t("common.description") }}
       <input type="text" name="description" required placeholder="{{ t('preferences.field.description_placeholder') }}">
@@ -49,7 +48,8 @@
     <label>{{ t("preferences.field.signals") }}
       <input type="text" name="signals" placeholder="{{ t('preferences.field.signals_placeholder') }}">
     </label>
-    <button type="submit">{{ t("preferences.button.add") }}</button>
+    </div>
+    <button type="submit" class="secondary">{{ t("preferences.button.add") }}</button>
   </form>
 
   <table class="table">

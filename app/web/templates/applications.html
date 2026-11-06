@@ -34,7 +34,7 @@
       <tr>
         <td><a href="/companies/{{ app.company.id }}">{{ app.company.name }}</a></td>
         <td><a href="/applications/{{ app.id }}">{{ app.target_position or t("common.untitled") }}</a></td>
-        <td class="cell-nowrap"><span class="badge badge-state">{{ app.state.value | replace("_", " ") }}</span></td>
+        <td class="cell-nowrap"><span class="badge badge-state">{{ app.state.value | replace("_", " ") | capitalize }}</span></td>
         <td class="cell-nowrap">{{ app.sent_at.strftime("%Y-%m-%d") if app.sent_at else "—" }}</td>
         <td class="cell-nowrap">{{ app.last_action_at.strftime("%Y-%m-%d") }}</td>
       </tr>

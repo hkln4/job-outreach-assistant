@@ -159,3 +159,68 @@ document.addEventListener("click", function (e) {
   const toggle = body.closest(".email-card") && body.closest(".email-card").querySelector("details.edit-toggle");
   if (toggle) toggle.open = true;
 });
+
+// One-page views: everything inside [data-ajax-scope] works without leaving
+// the page. A post (or a row link) is fetched in the background and the
+// scope is swapped for its fresh version; an answer that belongs elsewhere
+// (a new application, a company) navigates there. The URL follows along.
+async function swapScope(scope, url, init) {
+  scope.classList.add("is-busy");
+  const response = await fetch(url, Object.assign({ credentials: "same-origin" }, init || {}));
+  if (!response.ok) throw new Error("HTTP " + response.status);
+  const landed = new URL(response.url);
+  const base = scope.getAttribute("data-base") || "";
+  const doc = new DOMParser().parseFromString(await response.text(), "text/html");
+  let fresh = doc.getElementById(scope.id);
+  if (!fresh && base && landed.pathname.startsWith(base)) {
+    // e.g. a detail page answered: reload the current one-page view around it
+    return swapScope(scope, location.href);
+  }
+  if (!fresh) {
+    location.href = response.url;
+    return;
+  }
+  scope.replaceWith(fresh);
+  if (landed.pathname === location.pathname || landed.pathname.startsWith(base)) {
+    history.replaceState(null, "", landed.pathname + landed.search);
+  }
+  initTabs(fresh);
+  document.dispatchEvent(new CustomEvent("inline:done"));
+}
+
+document.addEventListener("submit", function (e) {
+  const form = e.target;
+  if (e.defaultPrevented || !(form instanceof HTMLFormElement) || form.hasAttribute("data-inline")) return;
+  const scope = form.closest("[data-ajax-scope]");
+  if (!scope || (form.getAttribute("method") || "get").toLowerCase() !== "post") return;
+  e.preventDefault();
+  const button = e.submitter;
+  const body = new FormData(form);
+  if (button && button.name) body.append(button.name, button.value);
+  swapScope(scope, formUrl(form), { method: "POST", body: body }).catch(function () {
+    scope.classList.remove("is-busy");
+    fallbackSubmit(form, button);
+  });
+});
+
+document.addEventListener("click", function (e) {
+  const link = e.target.closest("a[data-swap]");
+  if (!link || e.metaKey || e.ctrlKey || e.shiftKey) return;
+  const scope = link.closest("[data-ajax-scope]");
+  if (!scope) return;
+  e.preventDefault();
+  history.pushState(null, "", link.getAttribute("href"));
+  swapScope(scope, link.getAttribute("href")).catch(function () { location.href = link.href; });
+});
+window.addEventListener("popstate", function () {
+  if (document.querySelector("[data-ajax-scope]")) location.reload();
+});
+
+// Forms marked data-autosubmit post themselves when a field changes.
+let autosubmitTimer = null;
+document.addEventListener("change", function (e) {
+  const form = e.target.form;
+  if (!form || !form.hasAttribute("data-autosubmit")) return;
+  clearTimeout(autosubmitTimer);
+  autosubmitTimer = setTimeout(function () { form.requestSubmit(); }, 350);
+});

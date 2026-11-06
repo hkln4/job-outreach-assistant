@@ -3,7 +3,7 @@
   <div class="row">
     <form method="post" action="/cv-builder/projects/{{ p.id }}" data-inline="swap">
       <input type="hidden" name="action" value="toggle">
-      <button type="submit" class="{{ '' if p.selected else 'secondary' }}" title="{{ t('cvb.toggle_hint') }}">{{ "✓" if p.selected else "+" }}</button>
+      <button type="submit" class="{{ '' if p.selected else 'secondary' }}" title="{{ t('cvb.toggle_hint') }}">{{ t("cvb.on_cv") if p.selected else t("cvb.add_to_cv") }}</button>
     </form>
     <span class="row-main"><strong>{{ p.name }}</strong>{% if p.subtitle %} <span class="row-meta">— {{ p.subtitle }}</span>{% endif %}</span>
     {% if p.selected %}
@@ -33,13 +33,13 @@
         <div class="row-actions">
           {% if b.status == "approved" %}
             <span class="badge badge-state">{{ t("cvb.status.approved") }}</span>
-            <button type="submit" name="action" value="unapprove" class="secondary" title="{{ t('cvb.unapprove') }}">↺</button>
+            <button type="submit" name="action" value="unapprove" class="secondary" >{{ t('cvb.unapprove') }}</button>
           {% elif can_approve(b) %}
             <button type="submit" name="action" value="approve">{{ t("cvb.approve") }}</button>
           {% else %}
             <span class="badge badge-soft" title="{{ (flags.ats or []) | join(', ') }}">{{ t("cvb.fix_first") }}</span>
           {% endif %}
-          <button type="submit" name="action" value="delete" class="secondary danger" title="{{ t('common.delete') }}">✕</button>
+          <button type="submit" name="action" value="delete" class="link-button">{{ t('common.delete') }}</button>
         </div>
         <div class="bullet-source">
           {% for issue in flags.ats or [] %}<span class="badge badge-soft">{{ t("cvb.ats." ~ issue) }}</span> {% endfor %}

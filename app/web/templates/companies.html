@@ -33,16 +33,35 @@
     </div>
   </details>
 
+  <div data-ajax-scope data-base="/companies" id="companies-scope">
+  {% if open_id and company is defined %}
+    <div class="master-detail">
+      <div class="master">
+        <p><a href="/companies{{ '?' ~ list_query if list_query }}" data-swap>{{ t("companies.all_companies") }}</a></p>
+        <div class="rows">
+          {% for c in companies %}
+          <a data-swap class="row row-link{{ ' is-active' if c.id == open_id }}" href="/companies?open={{ c.id }}{{ '&' ~ list_query if list_query }}">
+            <span class="row-main"><strong>{{ c.name }}</strong>
+              <span class="row-meta">{{ c.technopark or c.location or "" }}</span>
+              {% if c.state.value != "APPLICABLE" %}<span class="badge">{{ c.state.value | replace("_", " ") | capitalize }}</span>{% endif %}
+              {% if c.id in contacted_ids %}<span class="badge badge-state">{{ t("companies.contacted") }}</span>{% endif %}</span>
+          </a>
+          {% endfor %}
+        </div>
+      </div>
+      <div class="detail">{% include "_company_body.html" %}</div>
+    </div>
+  {% else %}
   {% if technoparks or filter_uncontacted or filter_technopark %}
   <form class="inline-form" method="get" action="/companies">
-    <select name="technopark" onchange="this.form.submit()">
+    <select name="technopark" onchange="this.form.requestSubmit()">
       <option value="">{{ t("companies.filter.all_technoparks") }}</option>
       {% for tp in technoparks %}
         <option value="{{ tp }}" {% if filter_technopark == tp %}selected{% endif %}>{{ tp }}</option>
       {% endfor %}
     </select>
     <label>
-      <input type="checkbox" name="uncontacted" value="1" onchange="this.form.submit()" {% if filter_uncontacted %}checked{% endif %}>
+      <input type="checkbox" name="uncontacted" value="1" onchange="this.form.requestSubmit()" {% if filter_uncontacted %}checked{% endif %}>
       {{ t("companies.filter.uncontacted") }}
     </label>
   </form>
@@ -69,6 +88,9 @@
         {% endfor %}
       </tbody>
     </table>
+  </div>
+
+  {% endif %}
   </div>
 
   <script id="companies-i18n" type="application/json">

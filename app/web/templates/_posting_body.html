@@ -20,10 +20,10 @@
     </form>
     {% endif %}
     {% if posting.inbox or posting.status.value in ("DISMISSED", "EXPIRED") %}
-    <form method="post" action="/postings/{{ posting.id }}/triage"><input type="hidden" name="action" value="keep"><button type="submit" class="secondary">{{ t("postings.keep") }}</button></form>
+    <form method="post" action="/postings/{{ posting.id }}/triage"><input type="hidden" name="seg" value="{{ seg or '' }}"><input type="hidden" name="action" value="keep"><button type="submit" class="secondary">{{ t("postings.keep") }}</button></form>
     {% endif %}
     {% if posting.status.value not in ("DISMISSED", "APPLIED") %}
-    <form method="post" action="/postings/{{ posting.id }}/triage"><input type="hidden" name="action" value="dismiss"><button type="submit" class="secondary">{{ t("postings.dismiss") }}</button></form>
+    <form method="post" action="/postings/{{ posting.id }}/triage"><input type="hidden" name="seg" value="{{ seg or '' }}"><input type="hidden" name="action" value="dismiss"><button type="submit" class="secondary">{{ t("postings.dismiss") }}</button></form>
     {% endif %}
     <form method="post" action="/postings/{{ posting.id }}/evaluate" data-loading-text="{{ t('loading.analyzing') }}">
       <button type="submit" class="link-button">{{ t("postings.parse_evaluate") if (posting.extra or {}).get("parsed") == false else (t("postings.reevaluate") if (posting.fit or {}).scores else t("postings.evaluate")) }}</button>

@@ -2,7 +2,7 @@
    outside the thread), the bounce panel, and the exact CV that was sent. #}
 {% if application.state.value == "BOUNCED" %}
   <div class="warning">
-    <strong>⚠ {{ t("application_detail.bounced_title") }}</strong>
+    <strong>{{ t("application_detail.bounced_title") }}</strong>
     <p>{{ t("application_detail.bounced_body") }} <code>{{ application.sent_to }}</code></p>
     {% if alternative_emails %}
       <p>{{ t("application_detail.bounced_try_next") }}</p>

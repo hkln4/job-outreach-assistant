@@ -137,8 +137,8 @@
             <form method="post" action="/discovery/decide" class="row-decide">
               <input type="hidden" name="candidate_ids" value="{{ c.id }}">
               <input type="hidden" name="return_to" value="{{ return_to }}">
-              <button type="submit" name="action" value="approve" class="decide-yes" title="{{ t('discovery.approve_one') }}" aria-label="{{ t('discovery.approve_one') }}">✓</button>
-              <button type="submit" name="action" value="reject" class="decide-no" title="{{ t('discovery.reject_one') }}" aria-label="{{ t('discovery.reject_one') }}">✕</button>
+              <button type="submit" name="action" value="approve" class="decide-yes" title="{{ t('discovery.approve_one') }}" >{{ t('discovery.approve_one') }}</button>
+              <button type="submit" name="action" value="reject" class="decide-no" title="{{ t('discovery.reject_one') }}" >{{ t('discovery.reject_one') }}</button>
             </form>
             {% endif %}
           </td>

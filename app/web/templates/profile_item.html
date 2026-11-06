@@ -15,7 +15,7 @@
       <button type="submit" class="secondary">{{ t("profile_item.reanalyze") }}</button>
     </form>
   {% endif %}
-  {% if saved %}<div class="card"><p>✓ {{ t("profile_item.saved") }}</p></div>{% endif %}
+  {% if saved %}<div class="card"><p>{{ t("profile_item.saved") }}</p></div>{% endif %}
   {% if item.extracted.parse_error %}
     <div class="warning"><strong>{{ t("profile.items.failed_prefix") }}</strong> {{ item.extracted.parse_error }}</div>
   {% endif %}

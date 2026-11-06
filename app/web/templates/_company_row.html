@@ -3,7 +3,7 @@
    reload. Expects: company, states, contacted_ids, t. #}
 <tr data-row id="company-{{ company.id }}">
   <td class="cell-name">
-    <a href="/companies/{{ company.id }}">{{ company.name }}</a>
+    <a href="/companies?open={{ company.id }}" data-swap>{{ company.name }}</a>
     {% if company.website_url %}
       <a class="cell-site" href="{{ company.website_url }}" target="_blank" rel="noopener" title="{{ company.website_url }}">{{ company.website_url | replace("https://", "") | replace("http://", "") | trim("/") }}</a>
     {% endif %}
@@ -28,7 +28,7 @@
     </form>
   </td>
   <td>
-    {% if company.id in contacted_ids %}<span class="badge badge-state">✓</span>{% else %}<span class="muted">—</span>{% endif %}
+    {% if company.id in contacted_ids %}<span class="badge badge-state">{{ t("companies.contacted") }}</span>{% else %}<span class="muted">—</span>{% endif %}
   </td>
   <td class="cell-date">{{ company.created_at.strftime("%Y-%m-%d") }}</td>
   <td class="row-action">
