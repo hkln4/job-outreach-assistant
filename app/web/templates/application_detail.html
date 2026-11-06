@@ -4,13 +4,13 @@
   <div class="dash-header">
     <div>
       <h1>{{ application.company.name }}</h1>
-      <p class="muted">{{ application.target_position or t("common.untitled") }} &middot; <span class="badge badge-state">{{ application.state.value | replace("_", " ") }}</span></p>
+      <p class="muted">{{ application.target_position or t("common.untitled") }} &middot; <span class="badge badge-state">{{ application.state.value | replace("_", " ") | capitalize }}</span></p>
     </div>
     <div class="dash-header-actions">
       <a class="button-link secondary" href="/">{{ t("application_detail.back_to_dashboard") }}</a>
       {% if application.state.value in ("DRAFT", "PENDING_APPROVAL") %}
       <form method="post" action="/applications/{{ application.id }}/delete" onsubmit="return confirm('{{ t('application_detail.discard_confirm') }}');">
-        <button type="submit" class="secondary danger">{{ t("application_detail.discard_button") }}</button>
+        <button type="submit" class="link-button">{{ t("application_detail.discard_button") }}</button>
       </form>
       {% endif %}
     </div>
@@ -48,8 +48,47 @@
   </div>
   {% endif %}
 
-  <div class="app-grid">
-  <div class="app-main">
+  <div class="app-page">
+  {% set review_issues = draft_review.issues if draft_review and draft_review.issues else [] %}
+  {% if draft_warnings or review_issues or (draft_review and draft_review.error) %}
+  <div class="warning checks" id="draft-checks">
+    <h3>{{ t("draft_check.title") }}</h3>
+    {% if draft_warnings %}
+    <ul>
+      {% for key, detail in draft_warnings %}
+      <li>{{ t(key) }}{% if detail %} <span class="muted">{{ detail }}</span>{% endif %}</li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+    {% set cc = (application.revision_history or [{}])[0].claim_check or {} %}
+    {% if application.state.value == "PENDING_APPROVAL" and (cc.stale or cc.not_checked) %}
+    <form method="post" action="/applications/{{ application.id }}/recheck-claims" data-loading-text="{{ t('loading.checking') }}"><button type="submit" class="secondary">{{ t("draft_check.recheck") }}</button></form>
+    {% endif %}
+    {% if review_issues %}
+    <p><strong>{{ t("draft_review.title") }}</strong>{% if draft_review.overall %} <span class="muted">{{ draft_review.overall }}</span>{% endif %}</p>
+    <ul class="draft-review">
+      {% for issue in review_issues %}
+      <li><span class="badge badge-soft">{{ t("draft_review.kind." ~ issue.kind) }}</span> <q>{{ issue.quote }}</q>
+        {% if issue.replacement is defined %} → <q>{{ issue.replacement or t("draft_review.delete") }}</q>{% endif %} - {{ issue.suggestion }}
+        {% if issue.applied %}<span class="badge badge-state">{{ t("draft_review.applied") }}</span>
+        {% elif issue.stale %}<span class="badge">{{ t("draft_review.stale") }}</span>
+        {% elif issue.replacement is defined and application.state.value == "PENDING_APPROVAL" %}
+          <form method="post" action="/applications/{{ application.id }}/review-edits/{{ loop.index0 }}" style="display:inline"><button type="submit" class="secondary">{{ t("draft_review.apply") }}</button></form>
+        {% endif %}</li>
+      {% endfor %}
+    </ul>
+    <form method="post" action="/applications/{{ application.id }}/reject" data-loading-text="{{ t('loading.regenerating') }}">
+      <input type="hidden" name="feedback" value="{{ review_feedback }}">
+      <button type="submit" class="secondary">{{ t("draft_review.rewrite") }}</button>
+    </form>
+    {% elif draft_review and draft_review.error %}
+    <p class="muted">{{ t("draft_review.failed") }} {{ draft_review.error }}</p>
+    {% endif %}
+  </div>
+  {% elif application.state.value == "PENDING_APPROVAL" %}
+  <div class="checks checks-ok"><span class="badge badge-state">✓</span> {{ t("application_detail.checks_clear") }}</div>
+  {% endif %}
+
   {% if not application.cover_letter_body %}
     <div class="card">
       <p class="empty-state">{{ t("application_detail.no_draft_yet") }}</p>
@@ -88,7 +127,7 @@
         </details>
       </div>
       {% endif %}
-      <div class="email-body">{{ application.cover_letter_body }}</div>
+      <div class="email-body" title="{{ t('application_detail.click_to_edit') if application.state.value == 'PENDING_APPROVAL' }}">{{ letter_html }}</div>
       {% if application.state.value == "PENDING_APPROVAL" %}
       <div class="email-body-edit">
         <input form="edit-form-{{ application.id }}" type="text" name="target_position" value="{{ application.target_position }}" placeholder="{{ t('application_detail.position_placeholder') }}" class="edit-subject-input">
@@ -112,6 +151,94 @@
       </details>
     </div>
     {% endif %}
+
+      {% set notes0 = (application.revision_history or [{}])[0] %}
+    <div class="tabs-block" data-tabs>
+    <nav class="tabs">
+      {% if application.application_reason or (application.revision_history and application.revision_history[0].reasoning) %}<button type="button" data-tab="why">{{ t("application_detail.why_title") }}</button>{% endif %}
+      {% if application.state.value == "PENDING_APPROVAL" and notes0.angles %}<button type="button" data-tab="angles">{{ t("angles.title") }} ({{ notes0.angles | length }})</button>{% endif %}
+      {% if application.evidence %}<button type="button" data-tab="evidence">{{ t("application_detail.evidence_title") }} ({{ application.evidence | selectattr("used") | list | length }}/{{ application.evidence | length }})</button>{% endif %}
+      {% if application.sources %}<button type="button" data-tab="sources">{{ t("application_detail.sources_title") }} ({{ application.sources | length }})</button>{% endif %}
+      {% if application.state.value == "PENDING_APPROVAL" and form_channels %}<button type="button" data-tab="forms">{{ t("channels.apply_by_form") }} ({{ form_channels | length }})</button>{% endif %}
+    </nav>
+  {% if application.application_reason or (application.revision_history and application.revision_history[0].reasoning) %}
+  <div class="tab-panel" data-panel="why">
+    {% if application.application_reason %}<p>{{ application.application_reason }}</p>{% endif %}
+    {% if application.revision_history and application.revision_history[0].reasoning %}<p class="hint">{{ application.revision_history[0].reasoning }}</p>{% endif %}
+  </div>
+  {% endif %}
+  {% if application.state.value == "PENDING_APPROVAL" and notes0.angles %}
+  <div class="tab-panel" data-panel="angles">
+    <p class="hint">{{ t("angles.hint") }}</p>
+    {% for angle in notes0.angles %}
+      <div class="evidence">
+        {% if loop.index0 == (notes0.angle_index or 0) %}<span class="badge badge-state">{{ t("angles.current") }}</span>{% endif %}
+        <q>{{ angle.company_hook }}</q> <a href="{{ angle.hook_url }}" target="_blank" rel="noopener">↗</a>
+        <br>{{ angle.bridge }} <span class="muted">· E{{ angle.owner_evidence_id }} · {{ angle.position }}</span>
+        {% if loop.index0 != (notes0.angle_index or 0) %}
+        <form method="post" action="/applications/{{ application.id }}/angle" data-loading-text="{{ t('loading.regenerating') }}">
+          <input type="hidden" name="angle_index" value="{{ loop.index0 }}">
+          <button type="submit" class="secondary">{{ t("angles.use") }}</button>
+        </form>
+        {% endif %}
+      </div>
+    {% endfor %}
+    {% if notes0.recipient_kind and notes0.recipient_kind != "general" %}<p class="hint">{{ t("angles.recipient") }} {{ t("recipient." ~ notes0.recipient_kind) }}</p>{% endif %}
+    {% if notes0.project_page %}<p class="hint">{{ t("angles.project_page") }} <a href="{{ notes0.project_page }}" target="_blank" rel="noopener">{{ notes0.project_page }}</a></p>{% endif %}
+  </div>
+  {% endif %}
+
+    {% if application.evidence %}
+    <div class="tab-panel" data-panel="evidence" id="evidence">
+      <p class="hint">{{ t("application_detail.evidence_hint") }}</p>
+      {% for e in application.evidence %}
+      {% set excluded = e.item_id in (application.excluded_evidence_ids or []) %}
+      <div class="evidence{{ ' evidence-unused' if not e.used }}">
+        {% if e.used %}<span class="badge badge-state">{{ t("application_detail.evidence_used") }}</span>{% endif %}
+        {% if excluded %}<span class="badge badge-soft">{{ t("application_detail.evidence_excluded") }}</span>{% endif %}
+        <strong>{{ e.source_ref }}</strong> <span class="muted">· {{ e.source_type }}</span>
+        {% if e.source_url %}<a href="{{ e.source_url }}" target="_blank" rel="noopener">↗</a>{% endif %}
+        {% if e.purpose %}<br>{{ e.purpose }}{% endif %}
+        {% if e.why %}<br><em>{{ t("application_detail.evidence_why") }} {{ e.why }}</em>{% endif %}
+        {% if application.state.value == "PENDING_APPROVAL" %}
+        <form method="post" action="/applications/{{ application.id }}/evidence/{{ e.item_id }}/toggle" class="evidence-toggle">
+          <button type="submit" class="secondary">{{ t("application_detail.evidence_include") if excluded else t("application_detail.evidence_exclude") }}</button>
+        </form>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if application.sources %}
+    <div class="tab-panel" data-panel="sources">
+      <ul class="link-list">
+        {% for src in application.sources %}
+        <li><a href="{{ src }}" target="_blank" rel="noopener">{{ src }}</a></li>
+        {% endfor %}
+      </ul>
+    </div>
+    {% endif %}
+
+    {% if application.state.value == "PENDING_APPROVAL" and form_channels %}
+    <div class="tab-panel" data-panel="forms">
+      <p class="hint">{{ t("channels.apply_by_form_hint") }}</p>
+      {% for ch in form_channels %}
+        <div class="evidence">
+          <span class="badge">{{ t("channels.kind." ~ ch.kind) }}</span>{% if ch.provider %} <span class="badge">{{ ch.provider }}</span>{% endif %}
+          <a href="{{ ch.url }}" target="_blank" rel="noopener">{{ ch.url }}</a>
+          {% if ch.form_schema %}<ul>{% for f in ch.form_schema.fields %}<li><code>{{ f.type }}</code> {{ f.label or f.name }}{% if f.required %} *{% endif %}{% if f.maxlength %} <span class="muted">(max {{ f.maxlength }}, {{ t("channels.letter_chars") }} {{ application.cover_letter_body | length }})</span>{% endif %}</li>{% endfor %}</ul>{% endif %}
+          <form method="post" action="/applications/{{ application.id }}/submitted" class="inline-form">
+            <input type="hidden" name="channel" value="{{ 'ats_form' if ch.kind == 'ats_board' else ch.kind }}">
+            <input type="hidden" name="form_url" value="{{ ch.url }}">
+            <button type="submit" class="secondary">{{ t("channels.mark_submitted") }}</button>
+          </form>
+        </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    </div>
   {% endif %}
 
   {% if application.channel and application.channel != "email" and application.sent_at %}
@@ -212,141 +339,12 @@
     {% endfor %}
   </details>
   {% endif %}
-
-  </div>
-  <aside class="app-side">
-  {% set review_issues = draft_review.issues if draft_review and draft_review.issues else [] %}
-  {% if draft_warnings or review_issues or (draft_review and draft_review.error) %}
-  <div class="warning side-block" id="draft-checks">
-    <h3>{{ t("draft_check.title") }}</h3>
-    {% if draft_warnings %}
-    <ul>
-      {% for key, detail in draft_warnings %}
-      <li>{{ t(key) }}{% if detail %} <span class="muted">{{ detail }}</span>{% endif %}</li>
-      {% endfor %}
-    </ul>
-    {% endif %}
-    {% set cc = (application.revision_history or [{}])[0].claim_check or {} %}
-    {% if application.state.value == "PENDING_APPROVAL" and (cc.stale or cc.not_checked) %}
-    <form method="post" action="/applications/{{ application.id }}/recheck-claims" data-loading-text="{{ t('loading.checking') }}"><button type="submit" class="secondary">{{ t("draft_check.recheck") }}</button></form>
-    {% endif %}
-    {% if review_issues %}
-    <p><strong>{{ t("draft_review.title") }}</strong>{% if draft_review.overall %} <span class="muted">{{ draft_review.overall }}</span>{% endif %}</p>
-    <ul class="draft-review">
-      {% for issue in review_issues %}
-      <li><span class="badge badge-soft">{{ t("draft_review.kind." ~ issue.kind) }}</span> <q>{{ issue.quote }}</q>
-        {% if issue.replacement is defined %} → <q>{{ issue.replacement or t("draft_review.delete") }}</q>{% endif %} - {{ issue.suggestion }}
-        {% if issue.applied %}<span class="badge badge-state">{{ t("draft_review.applied") }}</span>
-        {% elif issue.stale %}<span class="badge">{{ t("draft_review.stale") }}</span>
-        {% elif issue.replacement is defined and application.state.value == "PENDING_APPROVAL" %}
-          <form method="post" action="/applications/{{ application.id }}/review-edits/{{ loop.index0 }}" style="display:inline"><button type="submit" class="secondary">{{ t("draft_review.apply") }}</button></form>
-        {% endif %}</li>
-      {% endfor %}
-    </ul>
-    <form method="post" action="/applications/{{ application.id }}/reject" data-loading-text="{{ t('loading.regenerating') }}">
-      <input type="hidden" name="feedback" value="{{ review_feedback }}">
-      <button type="submit" class="secondary">{{ t("draft_review.rewrite") }}</button>
-    </form>
-    {% elif draft_review and draft_review.error %}
-    <p class="muted">{{ t("draft_review.failed") }} {{ draft_review.error }}</p>
-    {% endif %}
-  </div>
-  {% elif application.state.value == "PENDING_APPROVAL" %}
-  <div class="card side-block"><span class="badge badge-state">✓</span> {{ t("application_detail.checks_clear") }}</div>
-  {% endif %}
-
-  {% set notes0 = (application.revision_history or [{}])[0] %}
-  {% if application.state.value == "PENDING_APPROVAL" and notes0.angles %}
-  <details class="side-block" id="angles">
-    <summary>{{ t("angles.title") }} ({{ notes0.angles | length }})</summary>
-    <p class="hint">{{ t("angles.hint") }}</p>
-    {% for angle in notes0.angles %}
-      <div class="evidence">
-        {% if loop.index0 == (notes0.angle_index or 0) %}<span class="badge badge-state">{{ t("angles.current") }}</span>{% endif %}
-        <q>{{ angle.company_hook }}</q> <a href="{{ angle.hook_url }}" target="_blank" rel="noopener">↗</a>
-        <br>{{ angle.bridge }} <span class="muted">· E{{ angle.owner_evidence_id }} · {{ angle.position }}</span>
-        {% if loop.index0 != (notes0.angle_index or 0) %}
-        <form method="post" action="/applications/{{ application.id }}/angle" data-loading-text="{{ t('loading.regenerating') }}">
-          <input type="hidden" name="angle_index" value="{{ loop.index0 }}">
-          <button type="submit" class="secondary">{{ t("angles.use") }}</button>
-        </form>
-        {% endif %}
-      </div>
-    {% endfor %}
-    {% if notes0.recipient_kind and notes0.recipient_kind != "general" %}<p class="hint">{{ t("angles.recipient") }} {{ t("recipient." ~ notes0.recipient_kind) }}</p>{% endif %}
-    {% if notes0.project_page %}<p class="hint">{{ t("angles.project_page") }} <a href="{{ notes0.project_page }}" target="_blank" rel="noopener">{{ notes0.project_page }}</a></p>{% endif %}
-  </details>
-  {% endif %}
-
-  {% if application.application_reason or (application.revision_history and application.revision_history[0].reasoning) %}
-  <details class="side-block">
-    <summary>{{ t("application_detail.why_title") }}</summary>
-    {% if application.application_reason %}<p>{{ application.application_reason }}</p>{% endif %}
-    {% if application.revision_history and application.revision_history[0].reasoning %}<p class="hint">{{ application.revision_history[0].reasoning }}</p>{% endif %}
-  </details>
-  {% endif %}
-  {% if application.cover_letter_body %}
-    {% if application.evidence %}
-    <details class="side-block" id="evidence">
-      <summary>{{ t("application_detail.evidence_title") }} ({{ application.evidence | selectattr("used") | list | length }}/{{ application.evidence | length }})</summary>
-      <p class="hint">{{ t("application_detail.evidence_hint") }}</p>
-      {% for e in application.evidence %}
-      {% set excluded = e.item_id in (application.excluded_evidence_ids or []) %}
-      <div class="evidence{{ ' evidence-unused' if not e.used }}">
-        {% if e.used %}<span class="badge badge-state">{{ t("application_detail.evidence_used") }}</span>{% endif %}
-        {% if excluded %}<span class="badge badge-soft">{{ t("application_detail.evidence_excluded") }}</span>{% endif %}
-        <strong>{{ e.source_ref }}</strong> <span class="muted">· {{ e.source_type }}</span>
-        {% if e.source_url %}<a href="{{ e.source_url }}" target="_blank" rel="noopener">↗</a>{% endif %}
-        {% if e.purpose %}<br>{{ e.purpose }}{% endif %}
-        {% if e.why %}<br><em>{{ t("application_detail.evidence_why") }} {{ e.why }}</em>{% endif %}
-        {% if application.state.value == "PENDING_APPROVAL" %}
-        <form method="post" action="/applications/{{ application.id }}/evidence/{{ e.item_id }}/toggle" class="evidence-toggle">
-          <button type="submit" class="secondary">{{ t("application_detail.evidence_include") if excluded else t("application_detail.evidence_exclude") }}</button>
-        </form>
-        {% endif %}
-      </div>
-      {% endfor %}
-    </details>
-    {% endif %}
-
-    {% if application.sources %}
-    <details class="side-block">
-      <summary>{{ t("application_detail.sources_title") }} ({{ application.sources | length }})</summary>
-      <ul class="link-list">
-        {% for src in application.sources %}
-        <li><a href="{{ src }}" target="_blank" rel="noopener">{{ src }}</a></li>
-        {% endfor %}
-      </ul>
-    </details>
-    {% endif %}
-
-    {% if application.state.value == "PENDING_APPROVAL" and form_channels %}
-    <details class="side-block">
-      <summary>{{ t("channels.apply_by_form") }} ({{ form_channels | length }})</summary>
-      <p class="hint">{{ t("channels.apply_by_form_hint") }}</p>
-      {% for ch in form_channels %}
-        <div class="evidence">
-          <span class="badge">{{ t("channels.kind." ~ ch.kind) }}</span>{% if ch.provider %} <span class="badge">{{ ch.provider }}</span>{% endif %}
-          <a href="{{ ch.url }}" target="_blank" rel="noopener">{{ ch.url }}</a>
-          {% if ch.form_schema %}<ul>{% for f in ch.form_schema.fields %}<li><code>{{ f.type }}</code> {{ f.label or f.name }}{% if f.required %} *{% endif %}{% if f.maxlength %} <span class="muted">(max {{ f.maxlength }}, {{ t("channels.letter_chars") }} {{ application.cover_letter_body | length }})</span>{% endif %}</li>{% endfor %}</ul>{% endif %}
-          <form method="post" action="/applications/{{ application.id }}/submitted" class="inline-form">
-            <input type="hidden" name="channel" value="{{ 'ats_form' if ch.kind == 'ats_board' else ch.kind }}">
-            <input type="hidden" name="form_url" value="{{ ch.url }}">
-            <button type="submit" class="secondary">{{ t("channels.mark_submitted") }}</button>
-          </form>
-        </div>
-      {% endfor %}
-    </details>
-    {% endif %}
-
-  {% endif %}
-  </aside>
   </div>
 
   {% if application.state.value == "PENDING_APPROVAL" %}
   <script id="draft-guard-i18n" type="application/json">
     { "unsavedBlocked": {{ t("application_detail.unsaved_blocked") | tojson }} }
   </script>
-  <script defer src="/static/draft_guard.js"></script>
+  <script defer src="{{ static("draft_guard.js") }}"></script>
   {% endif %}
 {% endblock %}

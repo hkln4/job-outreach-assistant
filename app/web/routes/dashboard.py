@@ -90,13 +90,18 @@ def dashboard(request: Request, checked: int = -1, replies: int = 0, bounces: in
     ]
 
     new_postings = [
-        p for p in db.query(JobPosting).filter(JobPosting.status == PostingStatus.NEW).order_by(JobPosting.id.desc()).limit(100).all()
+        p for p in db.query(JobPosting).filter(JobPosting.status == PostingStatus.NEW, JobPosting.inbox.is_(False))
+        .order_by(JobPosting.id.desc()).limit(100).all()
         if is_relevant(p.gates or {}) and (p.fit or {}).get("verdict") not in ("weak", "blocked")
     ]
+    inbox_count = sum(
+        1 for p in db.query(JobPosting).filter(JobPosting.status == PostingStatus.NEW, JobPosting.inbox.is_(True)).all()
+        if is_relevant(p.gates or {})
+    )
     candidates_waiting = db.query(func.count(CompanyCandidate.id)).filter(CompanyCandidate.status == CandidateStatus.PENDING).scalar() or 0
     month_costs = cost_summary(db)["by_month"].get(datetime.now(timezone.utc).strftime("%Y-%m"))
 
-    todo = today_list(pending_review, overdue, new_postings, ready_to_draft, needs_research, blocked)
+    todo = today_list(pending_review, overdue, new_postings, ready_to_draft, needs_research, blocked, inbox_count)
     return render(
         templates,
         request,
@@ -123,7 +128,7 @@ def dashboard(request: Request, checked: int = -1, replies: int = 0, bounces: in
     )
 
 
-def today_list(pending_review, overdue, new_postings, ready_to_draft, needs_research, blocked) -> list[dict]:
+def today_list(pending_review, overdue, new_postings, ready_to_draft, needs_research, blocked, inbox_count: int = 0) -> list[dict]:
     """One list of what to do now, most urgent first: drafts waiting for you,
     applications past the reply threshold, new postings that fit, companies
     ready for a letter, then companies that need research or a decision."""
@@ -132,13 +137,18 @@ def today_list(pending_review, overdue, new_postings, ready_to_draft, needs_rese
         ("overdue", [{"title": r["application"].company.name, "meta": f'{r["days_waiting"]}d' if r["days_waiting"] is not None else "",
                       "href": f'/applications/{r["application"].id}', "action": f'/applications/{r["application"].id}/follow-ups/draft',
                       "loading": "drafting"} for r in overdue]),
+        ("inbox", [{"title": "", "meta": "", "href": "/postings?view=inbox", "link": True}] if inbox_count else []),
         ("posting", [{"title": p.title or "—", "meta": p.company.name if p.company else p.company_name, "href": f"/postings/{p.id}",
                       "link": True, "badge": (p.fit or {}).get("verdict")} for p in new_postings]),
         ("draft", [{"title": c.name, "meta": "", "href": f"/companies/{c.id}", "action": f"/companies/{c.id}/draft", "loading": "drafting"} for c in ready_to_draft]),
         ("research", [{"title": c.name, "meta": "", "href": f"/companies/{c.id}", "action": f"/companies/{c.id}/research", "loading": "researching"} for c in needs_research]),
         ("blocked", [{"title": c.name, "meta": "", "href": f"/companies/{c.id}", "link": True} for c in blocked]),
     ]
-    return [{"kind": kind, "rows": rows[:PER_KIND], "more": max(0, len(rows) - PER_KIND), "count": len(rows)} for kind, rows in groups if rows]
+    return [
+        {"kind": kind, "rows": rows[:PER_KIND], "more": max(0, len(rows) - PER_KIND), "count": inbox_count if kind == "inbox" else len(rows)}
+        for kind, rows in groups
+        if rows
+    ]
 
 
 @router.post("/check-replies")

@@ -8,7 +8,7 @@ single-user app and those fields are always read/written as a whole per item.
 import enum
 from datetime import datetime, timezone
 
-from sqlalchemy import JSON, DateTime, Enum, ForeignKey, String, Text
+from sqlalchemy import JSON, Boolean, DateTime, Enum, ForeignKey, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
@@ -418,6 +418,9 @@ class JobPosting(Base):
     first_seen_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
     last_seen_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
     status: Mapped[PostingStatus] = mapped_column(Enum(PostingStatus), default=PostingStatus.NEW)
+    # Found automatically (ATS board, careers watch) and not yet looked at:
+    # waits on its own list until the owner keeps or dismisses it.
+    inbox: Mapped[bool] = mapped_column(Boolean, default=False)
     # Deterministic gates: {location: {result, quote}, language, seniority, remote_eligibility}
     gates: Mapped[dict] = mapped_column(JSON, default=dict)
     # Fit evaluation: {verdict, scores{dim: {score, posting_quote, evidence_ids, note}}, strengths[], gaps[]}

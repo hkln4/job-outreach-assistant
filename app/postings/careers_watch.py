@@ -137,6 +137,7 @@ def watch_company(db: Session, llm: LLMProvider, company: Company, client: httpx
             language=detect_language(description),
             content_hash=digest_posting,
             status=PostingStatus.NEW,
+            inbox=True,
             extra={"parsed": False, "found_on": url},
         )
         posting.gates = run_gates(posting.title, "", description, targets, skills)

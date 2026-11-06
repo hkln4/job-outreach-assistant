@@ -182,6 +182,7 @@ def import_board_postings(db: Session, board: AtsBoard, postings: list[dict], in
             date_posted=job.get("posted", ""),
             content_hash=digest,
             status=PostingStatus.NEW,
+            inbox=True,
             content_safety=report.to_dict(),
             extra={"ats": {"provider": board.provider, "token": board.token, "id": job["external_id"]}, "parsed": False},
         )

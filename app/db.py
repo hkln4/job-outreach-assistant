@@ -83,6 +83,7 @@ _COLUMN_MIGRATIONS = [
     ("cv_projects", "priority", "VARCHAR DEFAULT 'normal'"),
     ("tech_skills", "tier", "VARCHAR DEFAULT 'core'"),
     ("tech_skills", "tier_set_by_owner", "BOOLEAN DEFAULT 0"),
+    ("job_postings", "inbox", "BOOLEAN DEFAULT 0"),
 ]
 
 

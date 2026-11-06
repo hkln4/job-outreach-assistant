@@ -152,7 +152,9 @@ All of v1 plus roadmap phases 0-7 are built (`docs/ROADMAP.md`). By area:
   legitimacy flags, expiry check before drafting. Clearly unrelated roles
   (sales, finance, HR ...) are never imported from boards or careers pages;
   anything else that fails the role gate or fits weakly is folded away on the
-  page, one click dismisses them all. Board discovery uses Tavily search, only to find
+  page, one click dismisses them all. Postings found automatically (boards,
+  careers watch) wait under "New for you" until you keep or dismiss them; only
+  kept and pasted ones are in "Your postings". Board discovery uses Tavily search, only to find
   board slugs.
 - **Drafting and review**: angle (a quoted company hook + one of your records)
   -> the letter as plain text on the draft model -> a metadata call, with style
@@ -189,8 +191,10 @@ All of v1 plus roadmap phases 0-7 are built (`docs/ROADMAP.md`). By area:
 - **Layout**: the home page is one "Today" list, most urgent first (drafts to
   review, no reply past the threshold, new postings that fit, companies ready
   for a letter, then research and dealbreaker decisions), with one button per
-  row. Technopark import lives under **Companies**. The application page shows
-  the letter on the left and the checks, angles, evidence and sources beside it.
+  row. Technopark import lives under **Companies**. The application page is one
+  column: what to check first, the letter with every unverified sentence
+  highlighted in place (click it to edit), a send bar that stays in view, and
+  the reasoning, angles, evidence and sources in tabs below.
 - **LinkedIn research** (optional, off by default) - see
   [LinkedIn research](#linkedin-research-optional).
 - EN/TR interface; 367 passing tests (`tests/`).
@@ -424,5 +428,5 @@ app/
   web/                       routes + Jinja2 templates + i18n + a little JS
 scripts/                     DB init, Gmail smoke tests, hallucination eval, demo recorder
 docs/ROADMAP.md              phase specs and status
-tests/                       pytest suite (377 tests)
+tests/                       pytest suite (378 tests)
 ```

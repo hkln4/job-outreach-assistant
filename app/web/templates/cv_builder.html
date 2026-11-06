@@ -31,7 +31,7 @@
 
       <h2 id="skills">{{ t("cvb.skills_title") }}</h2>
       <p class="hint">{{ t("cvb.skills_hint_short") }}</p>
-      {% for g in groups %}
+      {% for g in groups if skills_by_group[g] %}
         {% set core = skills_by_group[g] | selectattr("0.tier", "equalto", "core") | rejectattr("0.hidden") | list %}
         {% set specific = skills_by_group[g] | rejectattr("0.tier", "equalto", "core") | rejectattr("0.hidden") | list %}
         <div class="cvb-skill-group" data-row id="skills-{{ g }}">
@@ -62,8 +62,8 @@
           {% endif %}
         </div>
       {% endfor %}
-      <div class="inline-form section">
-        <form method="post" action="/cv-builder/skills" class="inline-form">
+      <div class="toolbar section">
+        <form method="post" action="/cv-builder/skills" class="toolbar">
           <input type="hidden" name="action" value="add">
           <input type="text" name="name" required placeholder="{{ t('cvb.add_skill_placeholder') }}">
           <button type="submit" class="secondary">{{ t("cvb.add_skill") }}</button>
@@ -87,7 +87,7 @@
 
     <div class="cvb-preview">
       <div class="dash-header"><h2>{{ t("cvb.preview_live") }}</h2><span class="hint">{{ t("cvb.preview_live_hint") }}</span></div>
-      <iframe src="/cv-builder/preview.pdf" data-live-preview="/cv-builder/preview.pdf" class="pdf-frame" title="CV preview"></iframe>
+      <iframe src="/cv-builder/preview.pdf#view=FitH&toolbar=0" data-live-preview="/cv-builder/preview.pdf" class="pdf-frame" title="CV preview"></iframe>
     </div>
   </div>
 {% endblock %}

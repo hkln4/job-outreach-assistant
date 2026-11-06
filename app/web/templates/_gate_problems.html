@@ -1,0 +1,4 @@
+{# Only the gates that need a look (a passed gate is silent in lists). #}
+{% for name, gate in (posting.gates or {}).items() if gate.result not in ("pass", "unknown") %}
+  <span class="badge {{ 'badge-hard' if gate.result == 'reject' else 'badge-soft' }}" title="{{ gate.quote }} {{ gate.note }}">{{ t("postings.gate." ~ name) }}: {{ t("postings.gate_result." ~ gate.result) }}</span>
+{% endfor %}

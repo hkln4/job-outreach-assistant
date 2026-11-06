@@ -129,7 +129,7 @@ def test_full_workflow_add_preference_company_research_draft_approve(monkeypatch
     r = client.get(application_location)
     assert r.status_code == 200
     assert "Dear Widgets Inc" in r.text
-    assert "PENDING APPROVAL" in r.text
+    assert "Pending approval" in r.text
 
     db = SessionLocal()
     application = db.query(Application).filter(Application.company_id == company_id).first()
@@ -142,4 +142,4 @@ def test_full_workflow_add_preference_company_research_draft_approve(monkeypatch
     )
     r = client.post(f"/applications/{application_id}/approve", follow_redirects=True)
     assert r.status_code == 200
-    assert "AWAITING REPLY" in r.text
+    assert "Awaiting reply" in r.text

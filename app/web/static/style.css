@@ -366,9 +366,7 @@ button.small, .button-link.small,
 .table th {
   color: var(--fg-muted);
   font-weight: 600;
-  font-size: 0.78rem;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
+  font-size: 0.8rem;
   background: var(--surface-2);
 }
 
@@ -419,10 +417,8 @@ button.small, .button-link.small,
   display: inline-block;
   padding: 0.15rem 0.55rem;
   border-radius: 999px;
-  font-size: 0.72rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.02em;
+  font-size: 0.75rem;
+  font-weight: 600;
   background: var(--surface-2);
   border: 1px solid var(--border);
 }
@@ -629,7 +625,7 @@ details + details { margin-top: -0.75rem; }
 
 /* --- Chips (profile skills / target roles) --- */
 
-.chip-label { font-size: 0.78rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; color: var(--fg-muted); margin: 1.1rem 0 0.5rem; }
+.chip-label { font-size: 0.85rem; font-weight: 600; color: var(--fg-muted); margin: 1.1rem 0 0.5rem; }
 .chip-list { display: flex; flex-wrap: wrap; gap: 0.4rem; }
 .chip {
   display: inline-block;
@@ -702,7 +698,7 @@ details + details { margin-top: -0.75rem; }
   letter-spacing: 0.02em;
 }
 .ai-note-body { min-width: 0; }
-.ai-note-title { margin: 0 0 0.3rem; font-size: 0.78rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; color: var(--accent); }
+.ai-note-title { margin: 0 0 0.3rem; font-size: 0.85rem; font-weight: 600; color: var(--accent); }
 .ai-note-text { margin: 0; white-space: pre-wrap; font-size: 0.92rem; line-height: 1.6; }
 
 /* --- Email toolbar + in-place edit ---
@@ -1024,7 +1020,7 @@ details > summary { cursor: pointer; }
 .row .row-actions { display: flex; gap: 0.35rem; align-items: center; margin-left: auto; }
 .row .row-actions form { margin: 0; }
 .row button, .row .button-link { height: var(--control-h-sm); padding: 0 0.6rem; font-size: var(--control-fs-sm); }
-.rows-title { font-size: 0.8rem; font-weight: 600; color: var(--fg-muted); text-transform: uppercase; letter-spacing: 0.03em; margin: 1rem 0 0.35rem; }
+.rows-title { font-size: 0.9rem; font-weight: 600; color: var(--fg); margin: 1.1rem 0 0.4rem; }
 .steps { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 1rem; }
 .steps .step { border: 1px solid var(--border); border-radius: 999px; padding: 0.25rem 0.7rem; font-size: 0.8rem; background: var(--surface); }
 .steps .step.done { color: var(--accent); border-color: var(--accent); }
@@ -1062,3 +1058,37 @@ details.side-block { border: 1px solid var(--border); border-radius: var(--radiu
 details.side-block > summary { cursor: pointer; font-weight: 600; }
 .app-side .evidence { font-size: 0.85rem; }
 @media (max-width: 1000px) { .app-grid { grid-template-columns: 1fr; } .app-side { position: static; max-height: none; } }
+.segmented { display: inline-flex; align-items: center; gap: 0; border: 1px solid var(--border); border-radius: 999px; overflow: hidden; }
+.segmented-label { font-size: var(--control-fs-sm); color: var(--fg-muted); padding: 0 0.5rem; }
+.segmented button { border: 0; border-left: 1px solid var(--border); border-radius: 0; background: transparent; color: var(--fg-muted); min-width: 1.9rem; }
+.segmented button.is-on { background: var(--accent-soft); color: var(--accent); font-weight: 700; }
+.toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; }
+.toolbar form { margin: 0; }
+.toolbar input[type="text"] { width: auto; min-width: 12rem; margin: 0; }
+.toolbar button { height: var(--control-h-sm); font-size: var(--control-fs-sm); }
+.tabs { display: flex; gap: 0.25rem; border-bottom: 1px solid var(--border); margin: 1rem 0 0.75rem; }
+.tabs a { padding: 0.5rem 0.85rem; color: var(--fg-muted); text-decoration: none; border-bottom: 2px solid transparent; margin-bottom: -1px; font-weight: 600; }
+.tabs a.active { color: var(--fg); border-bottom-color: var(--accent); }
+.tabs .count { display: inline-block; min-width: 1.3rem; padding: 0 0.35rem; border-radius: 999px; background: var(--accent); color: #fff; font-size: 0.75rem; text-align: center; }
+.add-posting > summary { cursor: pointer; }
+.add-posting form { margin-top: 0.6rem; display: grid; gap: 0.5rem; }
+.add-posting input, .add-posting textarea { margin: 0; }
+/* Application page: one readable column - checks, the letter, actions, then context in tabs */
+.app-page { max-width: 860px; }
+.checks { margin: 0 0 0.9rem; }
+.checks-ok { color: var(--fg-muted); font-size: 0.9rem; }
+mark.flag { background: var(--warning-soft); color: inherit; border-bottom: 2px solid var(--warning); padding: 0 0.1rem; border-radius: 2px; }
+.email-card:has(details.edit-toggle) .email-body { cursor: text; }
+.review-panel { position: sticky; bottom: 0; z-index: 2; background: var(--bg); padding: 0.75rem 0; border-top: 1px solid var(--border); }
+.tabs-block { margin-top: 1.25rem; }
+.tabs button { background: transparent; border: 0; border-bottom: 2px solid transparent; border-radius: 0; color: var(--fg-muted); font-weight: 600; padding: 0.5rem 0.85rem; margin-bottom: -1px; height: auto; }
+.tabs button.active { color: var(--fg); border-bottom-color: var(--accent); }
+.tab-panel { padding: 0.25rem 0; }
+.tab-panel .evidence { font-size: 0.9rem; }
+/* "Rewrite" is the secondary action - not a red button as loud as Send */
+.review-panel .reject-toggle { flex: 0 0 auto; }
+.reject-toggle > summary { background: transparent; color: var(--fg); border: 1px solid var(--border); padding: 0 1.1rem; }
+.reject-toggle > summary:hover, .reject-toggle[open] > summary { background: var(--surface-2); color: var(--fg); }
+.reject-toggle > form { top: auto; bottom: calc(100% + 0.5rem); left: auto; right: 0; width: min(520px, 80vw); }
+.dash-header .row-actions { display: flex; flex-wrap: nowrap; gap: 0.4rem; align-items: center; }
+.dash-header .row-actions form { margin: 0; }

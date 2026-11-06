@@ -46,10 +46,28 @@ def _posting_or_404(db: Session, posting_id: int) -> JobPosting:
 
 
 @router.get("")
-def postings_index(request: Request, status: str = "open", error: str = "", watch: str = "", show_all: int = 0, db: Session = Depends(get_db)):
-    """Relevant postings first; ones the role gate rejected and weak fits are
-    folded away (never deleted)."""
-    query = db.query(JobPosting)
+def postings_index(
+    request: Request,
+    view: str = "",
+    status: str = "open",
+    error: str = "",
+    watch: str = "",
+    found: str = "",
+    show_all: int = 0,
+    db: Session = Depends(get_db),
+):
+    """Two lists: postings found automatically wait in "new for you" until
+    the owner keeps or dismisses them; kept and pasted ones are "your
+    postings". Unrelated roles and weak fits are folded away, never deleted."""
+    inbox = (
+        db.query(JobPosting)
+        .filter(JobPosting.inbox.is_(True), JobPosting.status == PostingStatus.NEW)
+        .order_by(JobPosting.id.desc())
+        .all()
+    )
+    if not view:
+        view = "inbox" if inbox else "mine"
+    query = db.query(JobPosting).filter(JobPosting.inbox.is_(False))
     if status == "open":
         query = query.filter(JobPosting.status.in_([PostingStatus.NEW, PostingStatus.SHORTLISTED]))
     elif status in PostingStatus.__members__:
@@ -68,6 +86,11 @@ def postings_index(request: Request, status: str = "open", error: str = "", watc
         "postings.html",
         {
             "postings": postings,
+            "view": view,
+            "inbox": [p for p in inbox if show_all or is_relevant(p.gates or {})],
+            "inbox_count": len(inbox),
+            "inbox_hidden": 0 if show_all else sum(1 for p in inbox if not is_relevant(p.gates or {})),
+            "found": found.split(",") if found.count(",") == 4 else None,
             "hidden_count": hidden_count,
             "show_all": bool(show_all),
             "filter_status": status,
@@ -91,6 +114,31 @@ def create_posting(
     except ValueError as exc:
         return RedirectResponse(url=f"/postings?error={quote(str(exc)[:300])}", status_code=303)
     return RedirectResponse(url=f"/postings/{posting.id}", status_code=303)
+
+
+@router.post("/{posting_id}/triage")
+def triage(posting_id: int, action: str = Form(...), db: Session = Depends(get_db)):
+    """Keep -> joins your postings; dismiss -> DISMISSED. In place on the page."""
+    posting = _posting_or_404(db, posting_id)
+    posting.inbox = False
+    if action == "dismiss":
+        posting.status = PostingStatus.DISMISSED
+    db.commit()
+    return RedirectResponse(url="/postings?view=inbox", status_code=303)
+
+
+@router.post("/inbox")
+def triage_all(action: str = Form(...), db: Session = Depends(get_db)):
+    """Keep or dismiss every posting still waiting (the ones on screen: the
+    role gate's rejects are only kept when the owner showed them)."""
+    for posting in db.query(JobPosting).filter(JobPosting.inbox.is_(True), JobPosting.status == PostingStatus.NEW).all():
+        if action == "keep" and not is_relevant(posting.gates or {}):
+            continue
+        posting.inbox = False
+        if action == "dismiss":
+            posting.status = PostingStatus.DISMISSED
+    db.commit()
+    return RedirectResponse(url="/postings?view=inbox" if action == "keep" else "/postings?view=mine", status_code=303)
 
 
 @router.post("/dismiss-irrelevant")
@@ -150,28 +198,28 @@ def _board_or_404(db: Session, board_id: int) -> AtsBoard:
 
 
 @router.post("/boards/{board_id}/read")
-async def read_board_postings(request: Request, board_id: int, db: Session = Depends(get_db)):
-    """Read the board fresh; accepted (Turkey) postings are imported, ambiguous
-    ones are listed for the owner to pick (submit again with their ids)."""
+def read_board_postings(board_id: int, db: Session = Depends(get_db)):
+    """Read the board fresh. Postings in Turkey and ones whose location is
+    unclear go to "new for you" (the location badge shows which); rejected
+    locations and unrelated roles are counted, not imported."""
     board = _board_or_404(db, board_id)
-    form = await request.form()
-    include = {str(v) for v in form.getlist("include_ids")}
     try:
         postings = read_board(board.provider, board.token)
     except Exception as exc:  # noqa: BLE001 - shown on the page
         board.last_result = {"error": str(exc)[:300]}
         db.commit()
         return RedirectResponse(url="/postings/boards", status_code=303)
-    counts = import_board_postings(db, board, postings, include)
-    ambiguous = [p for p in postings if p["location_gate"]["result"] in ("ambiguous", "unknown") and p["external_id"] not in include]
-    return render(templates, request, "posting_board_read.html", {"board": board, "counts": counts, "ambiguous": ambiguous})
+    unclear = {p["external_id"] for p in postings if p["location_gate"]["result"] in ("ambiguous", "unknown")}
+    counts = import_board_postings(db, board, postings, unclear)
+    found = ",".join(str(v) for v in (board.company_name or board.token, counts["imported"], counts["already_known"], counts["rejected"], counts["not_relevant"]))
+    return RedirectResponse(url=f"/postings?view=inbox&found={quote(found)}", status_code=303)
 
 
 @router.post("/careers-watch")
 def careers_watch(db: Session = Depends(get_db), llm: LLMProvider = Depends(get_llm)):
     summary = watch_all(db, llm)
     values = ",".join(str(summary[k]) for k in ("checked", "changed", "new_postings", "skipped"))
-    return RedirectResponse(url=f"/postings?watch={values}", status_code=303)
+    return RedirectResponse(url=f"/postings?view=inbox&watch={values}", status_code=303)
 
 
 @router.post("/from-page/{company_id}")

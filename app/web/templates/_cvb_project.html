@@ -7,11 +7,10 @@
     </form>
     <span class="row-main"><strong>{{ p.name }}</strong>{% if p.subtitle %} <span class="row-meta">— {{ p.subtitle }}</span>{% endif %}</span>
     {% if p.selected %}
-    <form method="post" action="/cv-builder/projects/{{ p.id }}" data-inline="swap">
+    <form method="post" action="/cv-builder/projects/{{ p.id }}" data-inline="swap" class="segmented" title="{{ t('cvb.bullet_count_hint') }}">
       <input type="hidden" name="action" value="priority">
-      <select name="priority" onchange="this.form.requestSubmit()" title="{{ t('cvb.priority_hint') }}">
-        {% for level in ("high", "normal", "low") %}<option value="{{ level }}" {% if p.priority == level %}selected{% endif %}>{{ t("cvb.priority." ~ level) }} · {{ bullets_for_priority[level] }}</option>{% endfor %}
-      </select>
+      <span class="segmented-label">{{ t("cvb.bullet_count") }}</span>
+      {% for level in ("low", "normal", "high") %}<button type="submit" name="priority" value="{{ level }}" class="{{ 'is-on' if p.priority == level }}">{{ bullets_for_priority[level] }}</button>{% endfor %}
     </form>
     <form method="post" action="/cv-builder/projects/{{ p.id }}" data-inline="swap" class="js-write{{ ' js-missing' if not p.bullets }}">
       <input type="hidden" name="action" value="bullets">
@@ -29,18 +28,17 @@
   <div class="cvb-bullets">
     {% for b in p.bullets %}
       {% set flags = b.flags or {} %}
-      <form method="post" action="/cv-builder/bullets/{{ b.id }}" data-inline="swap" class="cvb-bullet">
-        <textarea name="text" rows="2" class="bullet-text">{{ b.text }}</textarea>
+      <form method="post" action="/cv-builder/bullets/{{ b.id }}" data-inline="swap" data-save-on-change="save" class="cvb-bullet">
+        <textarea name="text" rows="2" class="bullet-text" title="{{ t('cvb.autosave_hint') }}">{{ b.text }}</textarea>
         <div class="row-actions">
           {% if b.status == "approved" %}
             <span class="badge badge-state">{{ t("cvb.status.approved") }}</span>
-            <button type="submit" name="action" value="unapprove" class="secondary">↺</button>
+            <button type="submit" name="action" value="unapprove" class="secondary" title="{{ t('cvb.unapprove') }}">↺</button>
           {% elif can_approve(b) %}
             <button type="submit" name="action" value="approve">{{ t("cvb.approve") }}</button>
           {% else %}
             <span class="badge badge-soft" title="{{ (flags.ats or []) | join(', ') }}">{{ t("cvb.fix_first") }}</span>
           {% endif %}
-          <button type="submit" name="action" value="save" class="secondary" title="{{ t('common.save') }}">💾</button>
           <button type="submit" name="action" value="delete" class="secondary danger" title="{{ t('common.delete') }}">✕</button>
         </div>
         <div class="bullet-source">

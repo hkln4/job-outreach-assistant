@@ -32,7 +32,7 @@
     <div class="rows">
       {% for row in group.rows %}
       <div class="row">
-        <span class="row-main"><a href="{{ row.href }}"><strong>{{ row.title }}</strong></a>
+        <span class="row-main"><a href="{{ row.href }}"><strong>{{ row.title or t("postings.tab.inbox") }}</strong></a>
           {% if row.meta %}<span class="row-meta">{{ row.meta }}</span>{% endif %}
           {% if row.badge %}<span class="badge">{{ t("postings.verdict." ~ row.badge) }}</span>{% endif %}</span>
         <span class="row-actions">

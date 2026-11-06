@@ -3,56 +3,98 @@
 {% block content %}
   <div class="dash-header">
     <h1>{{ t("postings.title") }}</h1>
-    <a class="button-link secondary" href="/postings/boards">{{ t("postings.boards_link") }}</a>
+    <div class="row-actions">
+      <form method="post" action="/postings/careers-watch" data-loading-text="{{ t('loading.checking') }}" title="{{ t('postings.watch_hint') }}">
+        <button type="submit" class="secondary">{{ t("postings.watch_button") }}</button>
+      </form>
+      <a class="button-link secondary" href="/postings/boards">{{ t("postings.boards_link") }}</a>
+    </div>
   </div>
-  <p class="hint">{{ t("postings.hint") }}</p>
   {% if error %}<div class="warning"><p>{{ error }}</p></div>{% endif %}
+  {% if found %}<div class="card"><p><strong>{{ found[0] }}</strong>: {{ found[1] }} {{ t("postings.found_new") }} · {{ found[2] }} {{ t("boards.already_known") }} · {{ found[3] }} {{ t("postings.found_outside") }} · {{ found[4] }} {{ t("boards.not_relevant") }}</p></div>{% endif %}
   {% if watch %}<div class="card"><p>{{ t("postings.watch_summary") }} {{ watch[0] }} · {{ t("postings.watch_changed") }} {{ watch[1] }} · {{ t("postings.watch_new") }} {{ watch[2] }} · {{ t("postings.watch_skipped") }} {{ watch[3] }}</p></div>{% endif %}
 
-  <div class="card">
-    <h2>{{ t("postings.add_title") }}</h2>
+  <details class="card add-posting" {{ "open" if not inbox_count and not postings }}>
+    <summary><strong>+ {{ t("postings.add_title") }}</strong> <span class="hint">{{ t("postings.add_short") }}</span></summary>
     <form method="post" action="/postings" data-loading-text="{{ t('loading.reading_posting') }}">
-      <label>{{ t("postings.field.url") }}<input type="url" name="url" placeholder="https://..."></label>
-      <label>{{ t("postings.field.text") }}<textarea name="text" rows="5" placeholder="{{ t('postings.field.text_placeholder') }}"></textarea></label>
+      <input type="url" name="url" placeholder="{{ t('postings.field.url') }} https://...">
+      <textarea name="text" rows="4" placeholder="{{ t('postings.field.text_placeholder') }}"></textarea>
       <p class="hint">{{ t("postings.add_hint") }}{% if not linkedin_enabled %} {{ t("postings.linkedin_off") }}{% endif %}</p>
       <button type="submit">{{ t("postings.add_button") }}</button>
     </form>
-    <form method="post" action="/postings/careers-watch" data-loading-text="{{ t('loading.checking') }}">
-      <p class="hint">{{ t("postings.watch_hint") }}</p>
-      <button type="submit" class="secondary">{{ t("postings.watch_button") }}</button>
-    </form>
-  </div>
+  </details>
 
-  <form method="get" action="/postings" class="inline-form">
-    <select name="status" onchange="this.form.submit()">
-      <option value="open" {% if filter_status == 'open' %}selected{% endif %}>{{ t("postings.filter.open") }}</option>
-      {% for st in statuses %}<option value="{{ st.value }}" {% if filter_status == st.value %}selected{% endif %}>{{ t("postings.status." ~ st.value) }}</option>{% endfor %}
-      <option value="all" {% if filter_status == 'all' %}selected{% endif %}>{{ t("postings.filter.all") }}</option>
-    </select>
-  </form>
+  <div data-row id="postings-lists">
+  <nav class="tabs">
+    <a href="/postings?view=inbox" class="{{ 'active' if view == 'inbox' }}">{{ t("postings.tab.inbox") }}{% if inbox_count %} <span class="count">{{ inbox_count }}</span>{% endif %}</a>
+    <a href="/postings?view=mine" class="{{ 'active' if view == 'mine' }}">{{ t("postings.tab.mine") }}</a>
+  </nav>
 
-  {% if hidden_count %}
-  <p class="hint">{{ hidden_count }} {{ t("postings.hidden_not_relevant") }}
-    {% if not show_all %}<a href="/postings?status={{ filter_status }}&show_all=1">{{ t("postings.show_them") }}</a>{% else %}<a href="/postings?status={{ filter_status }}">{{ t("postings.hide_them") }}</a>{% endif %}
-    · <form method="post" action="/postings/dismiss-irrelevant" style="display:inline"><button type="submit" class="secondary">{{ t("postings.dismiss_irrelevant") }}</button></form></p>
-  {% endif %}
-  <table class="table">
-    <thead><tr><th>{{ t("postings.table.posting") }}</th><th>{{ t("postings.table.gates") }}</th><th>{{ t("postings.table.fit") }}</th><th>{{ t("common.state") }}</th></tr></thead>
-    <tbody>
-      {% for posting in postings %}
-      <tr>
-        <td><a href="/postings/{{ posting.id }}"><strong>{{ posting.title or t("common.untitled") }}</strong></a>
-          <br><span class="hint">{{ posting.company.name if posting.company else (posting.company_name or "—") }} · {{ posting.location or "—" }} · {{ t("postings.source." ~ posting.source) }}</span>
-          {% if posting.legitimacy_flags %}<br><span class="badge badge-soft">{{ posting.legitimacy_flags | length }} {{ t("postings.flags") }}</span>{% endif %}
-          {% if posting.preference_check %}<span class="badge {{ 'badge-hard' if posting.preference_check | selectattr('severity', 'equalto', 'hard') | list else 'badge-soft' }}">{{ t("postings.pref_flags") }}</span>{% endif %}
-        </td>
-        <td>{% include "_gate_badges.html" %}</td>
-        <td>{% set v = (posting.fit or {}).get("verdict") %}{% if v %}<span class="badge {{ 'badge-state' if v == 'strong' else ('badge-hard' if v == 'blocked' else '') }}">{{ t("postings.verdict." ~ v) }}</span>{% elif (posting.extra or {}).get("parsed") == false %}<span class="muted">{{ t("postings.not_parsed") }}</span>{% else %}—{% endif %}</td>
-        <td class="cell-nowrap"><span class="badge">{{ t("postings.status." ~ posting.status.value) }}</span></td>
-      </tr>
-      {% else %}
-      <tr><td colspan="4" class="muted">{{ t("postings.empty") }}</td></tr>
+  {% if view == "inbox" %}
+    <p class="hint">{{ t("postings.inbox_hint") }}</p>
+    {% if inbox %}
+    <div class="toolbar">
+      <form method="post" action="/postings/inbox"><input type="hidden" name="action" value="keep"><button type="submit" class="secondary">{{ t("postings.keep_all") }}</button></form>
+      <form method="post" action="/postings/inbox" onsubmit="return confirm('{{ t('postings.dismiss_all_confirm') }}');"><input type="hidden" name="action" value="dismiss"><button type="submit" class="secondary danger">{{ t("postings.dismiss_all") }}</button></form>
+      {% if inbox_hidden %}<span class="hint">{{ inbox_hidden }} {{ t("postings.inbox_hidden") }} <a href="/postings?view=inbox&show_all=1">{{ t("postings.show_them") }}</a></span>{% endif %}
+    </div>
+    <div class="rows">
+      {% for posting in inbox %}
+      <div class="row" data-row id="inbox-{{ posting.id }}">
+        <span class="row-main">
+          <a href="/postings/{{ posting.id }}"><strong>{{ posting.title or t("common.untitled") }}</strong></a>
+          <span class="row-meta">{{ posting.company.name if posting.company else (posting.company_name or "—") }} · {{ posting.location or "—" }} · {{ t("postings.source." ~ posting.source) }}</span>
+          {% include "_gate_problems.html" %}
+        </span>
+        <span class="row-actions">
+          <form method="post" action="/postings/{{ posting.id }}/triage" data-inline="swap">
+            <button type="submit" name="action" value="keep">{{ t("postings.keep") }}</button>
+            <button type="submit" name="action" value="dismiss" class="secondary" title="{{ t('postings.dismiss') }}">✕</button>
+          </form>
+        </span>
+      </div>
       {% endfor %}
-    </tbody>
-  </table>
+    </div>
+    {% else %}
+      <p class="empty-state">{{ t("postings.inbox_empty") }}</p>
+    {% endif %}
+  {% else %}
+    <div class="toolbar">
+      <form method="get" action="/postings">
+        <input type="hidden" name="view" value="mine">
+        <select name="status" onchange="this.form.submit()">
+          <option value="open" {% if filter_status == 'open' %}selected{% endif %}>{{ t("postings.filter.open") }}</option>
+          {% for st in statuses %}<option value="{{ st.value }}" {% if filter_status == st.value %}selected{% endif %}>{{ t("postings.status." ~ st.value) }}</option>{% endfor %}
+          <option value="all" {% if filter_status == 'all' %}selected{% endif %}>{{ t("postings.filter.all") }}</option>
+        </select>
+      </form>
+      {% if hidden_count %}
+      <span class="hint">{{ hidden_count }} {{ t("postings.hidden_not_relevant") }}
+        {% if not show_all %}<a href="/postings?view=mine&status={{ filter_status }}&show_all=1">{{ t("postings.show_them") }}</a>{% else %}<a href="/postings?view=mine&status={{ filter_status }}">{{ t("postings.hide_them") }}</a>{% endif %}</span>
+      <form method="post" action="/postings/dismiss-irrelevant"><button type="submit" class="secondary">{{ t("postings.dismiss_irrelevant") }}</button></form>
+      {% endif %}
+    </div>
+    <div class="rows">
+      {% for posting in postings %}
+      <div class="row">
+        <span class="row-main">
+          <a href="/postings/{{ posting.id }}"><strong>{{ posting.title or t("common.untitled") }}</strong></a>
+          <span class="row-meta">{{ posting.company.name if posting.company else (posting.company_name or "—") }} · {{ posting.location or "—" }}</span>
+          {% set v = (posting.fit or {}).get("verdict") %}
+          {% if v %}<span class="badge {{ 'badge-state' if v == 'strong' else ('badge-hard' if v == 'blocked' else '') }}">{{ t("postings.verdict." ~ v) }}</span>{% endif %}
+          {% include "_gate_problems.html" %}
+          {% if posting.preference_check %}<span class="badge {{ 'badge-hard' if posting.preference_check | selectattr('severity', 'equalto', 'hard') | list else 'badge-soft' }}">{{ t("postings.pref_flags") }}</span>{% endif %}
+          {% if posting.legitimacy_flags %}<span class="badge badge-soft">{{ posting.legitimacy_flags | length }} {{ t("postings.flags") }}</span>{% endif %}
+        </span>
+        <span class="row-actions">
+          {% if posting.status.value != "NEW" %}<span class="badge">{{ t("postings.status." ~ posting.status.value) }}</span>{% endif %}
+          <a class="button-link secondary" href="/postings/{{ posting.id }}">{{ t("postings.open") }}</a>
+        </span>
+      </div>
+      {% else %}
+      <p class="empty-state">{{ t("postings.empty") }}</p>
+      {% endfor %}
+    </div>
+  {% endif %}
+  </div>
 {% endblock %}

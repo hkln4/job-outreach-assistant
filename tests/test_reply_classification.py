@@ -226,4 +226,4 @@ def test_bounced_application_page_offers_the_other_addresses(monkeypatch):
     assert page.status_code == 200
     assert "info@pagebounceco.example" in page.text
     response = TestClient(app).post(f"/applications/{application_id}/resend", data={"to": "info@pagebounceco.example"})
-    assert response.status_code == 200 and "PENDING APPROVAL" in response.text
+    assert response.status_code == 200 and "Pending approval" in response.text

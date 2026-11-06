@@ -6,6 +6,7 @@ definitive channel, other channels are informational only), reply checks
 and the follow-up (same-thread reminder) flow."""
 from datetime import datetime, timezone
 
+from markupsafe import Markup, escape
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
@@ -151,6 +152,7 @@ def application_detail(
             "wait_seconds": wait,
             "blocked": bool(blocked),
             "draft_warnings": draft_warnings(application),
+            "letter_html": marked_letter(application),
             "draft_review": draft_review,
             "review_feedback": review_feedback(draft_review),
             "follow_ups": follow_ups,
@@ -164,6 +166,26 @@ def application_detail(
             ),
         },
     )
+
+
+def marked_letter(application: Application) -> Markup:
+    """The letter, escaped, with each sentence the claim check couldn't verify
+    wrapped in <mark> - the problem is shown where it is, not in a list."""
+    body = application.cover_letter_body or ""
+    check = (application.revision_history or [{}])[0].get("claim_check") or {}
+    flagged = [u for u in check.get("unsupported") or [] if u.get("sentence") and u["sentence"] in body]
+    if check.get("stale") or not flagged:
+        return Markup(escape(body))
+    out, pos = [], 0
+    for entry in sorted(flagged, key=lambda u: body.find(u["sentence"])):
+        start = body.find(entry["sentence"], pos)
+        if start < 0:
+            continue
+        out.append(escape(body[pos:start]))
+        out.append(Markup('<mark class="flag" title="{}">{}</mark>').format(entry.get("reason", ""), entry["sentence"]))
+        pos = start + len(entry["sentence"])
+    out.append(escape(body[pos:]))
+    return Markup("").join(out)
 
 
 @router.post("/{application_id}/cv")

@@ -46,6 +46,11 @@ def cv_builder_page(request: Request, error: str = "", db: Session = Depends(get
     skills = db.query(TechSkill).order_by(TechSkill.sort_order, TechSkill.id).all()
     projects = db.query(CVProject).order_by(CVProject.selected.desc(), CVProject.sort_order).all()
     bullets = [b for p in projects if p.selected for b in p.bullets]
+    stale = [b for b in bullets if b.status == "draft" and "ats" not in (b.flags or {})]
+    for bullet in stale:  # stored before the ATS rules existed
+        bullet.flags = check_bullet(bullet.text, bullet.project.profile_item if bullet.project else None)
+    if stale:
+        db.commit()
     return render(
         templates,
         request,
