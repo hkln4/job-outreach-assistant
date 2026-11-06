@@ -5,19 +5,14 @@ drives every action here; nothing runs autonomously in the background.
 Run with: uvicorn app.main:app --reload --port 8000
 (or: python -m app.main)
 """
-import warnings
 from contextlib import asynccontextmanager
 
-from bs4 import XMLParsedAsHTMLWarning
 from fastapi import FastAPI, Request
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.config import get_settings
 
-# Sitemaps (liveness check) are read with the HTML parser on purpose: it finds
-# <lastmod> just as well and needs no lxml. Don't flood the console about it.
-warnings.filterwarnings("ignore", category=XMLParsedAsHTMLWarning)
 from app.db import SessionLocal, init_db
 from app.models import CV
 from app.web.errors import register_error_handlers, render_error

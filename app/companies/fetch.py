@@ -6,12 +6,17 @@ the homepage, since a single homepage is often thin marketing copy with no real
 company info, no jobs, and no contact email - see MAX_CHARS_PER_PAGE below for how
 each page's share of the LLM's context budget is kept bounded as more pages are added.
 """
+import logging
 import re
 from urllib.parse import urldefrag, urljoin, urlparse
 
 import httpx
 from bs4 import BeautifulSoup
 from readability import Document as ReadabilityDocument
+
+# readability logs a full traceback ("error getting summary") before raising
+# on empty or non-HTML pages; we handle that ourselves, so keep it quiet.
+logging.getLogger("readability.readability").setLevel(logging.CRITICAL)
 
 from app.channels.detect import detect_channels, merge_channels
 from app.companies.emails import extract_emails
@@ -152,8 +157,13 @@ def _footer_block(html: str) -> str:
 
 
 def _readable_text(html: str) -> str:
-    doc = ReadabilityDocument(html)
-    soup = BeautifulSoup(doc.summary(), "html.parser")
+    if not (html or "").strip():
+        return ""  # an empty page (JS-only sites): nothing to read
+    try:
+        summary = ReadabilityDocument(html).summary()
+    except Exception:  # noqa: BLE001 - "Document is empty" etc.: use the full-page text below
+        summary = ""
+    soup = BeautifulSoup(summary, "html.parser")
     text = soup.get_text("\n", strip=True)
     if len(text) >= MIN_READABILITY_CHARS:
         return text

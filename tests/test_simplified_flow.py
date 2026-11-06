@@ -318,3 +318,17 @@ def test_a_skipped_question_is_not_asked_again_and_claims_nothing():
         db.query(ProfileItem).filter(ProfileItem.source_ref == "simp/q").delete(synchronize_session=False)
         db.commit()
         db.close()
+
+
+def test_empty_or_non_html_pages_are_read_quietly(caplog):
+    """Liveness hits JS-only and odd homepages: no traceback in the console,
+    just no text."""
+    import logging
+
+    from app.companies.fetch import _readable_text
+
+    with caplog.at_level(logging.DEBUG):
+        for html in ("", "   ", "<!-- only a comment -->", "<?xml version='1.0'?><urlset></urlset>"):
+            assert _readable_text(html) == ""
+    assert not [r for r in caplog.records if r.levelno >= logging.ERROR]
+    assert _readable_text("<html><body><p>Hello world</p></body></html>") == "Hello world"
