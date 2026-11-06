@@ -1160,3 +1160,15 @@ details.plain > summary { display: none; }
 .question label input { max-width: none; }
 .question label { flex: 1; margin-bottom: 0.4rem; }
 .danger-text { color: var(--danger) !important; }
+/* Posting filter panel */
+.filter-panel > summary { cursor: pointer; display: flex; flex-wrap: wrap; gap: 0.4rem 1rem; align-items: baseline; }
+.filter-summary { margin: 0; font-size: 0.85rem; }
+.filter-form { margin-top: 0.75rem; }
+.filter-form h3 { margin: 1rem 0 0.2rem; font-size: 1rem; }
+.inline-set { border: 0; padding: 0; margin: 0.4rem 0; display: flex; gap: 0.9rem; flex-wrap: wrap; align-items: center; }
+.inline-set legend { float: left; margin-right: 0.6rem; color: var(--fg-muted); font-size: 0.85rem; }
+.place-table { max-width: 44rem; }
+.place-table td, .place-table th { padding: 0.3rem 0.5rem; vertical-align: middle; }
+.place-table th:not(:first-child), .place-table td:not(:first-child) { text-align: center; width: 6rem; }
+.place-table input[type="text"] { margin: 0; min-width: 12rem; }
+.place-table .new-row input[type="text"] { border-style: dashed; }

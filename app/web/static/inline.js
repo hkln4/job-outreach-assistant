@@ -180,6 +180,11 @@ async function swapScope(scope, url, init) {
     location.href = response.url;
     return;
   }
+  // panels the owner had open stay open
+  scope.querySelectorAll("details[id][open]").forEach(function (d) {
+    const twin = fresh.querySelector("#" + CSS.escape(d.id));
+    if (twin) twin.open = true;
+  });
   scope.replaceWith(fresh);
   if (landed.pathname === location.pathname || landed.pathname.startsWith(base)) {
     history.replaceState(null, "", landed.pathname + landed.search);

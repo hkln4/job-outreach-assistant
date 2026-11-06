@@ -157,8 +157,13 @@ All of v1 plus roadmap phases 0-7 are built (`docs/ROADMAP.md`). By area:
   search, only to find board slugs.
 - **Posting filter** (top of `/postings`, saved as you edit): roles (any of,
   with aliases - "ml" also matches "machine learning", "swe" "software
-  engineer", Turkish titles too), words that never appear, levels, and a
-  location rule (your city in any work mode, elsewhere remote only). Boards and
+  engineer", Turkish titles too), words that never appear, levels, and your
+  location rules: a list of places you edit, each with the work modes you
+  accept there (e.g. Ankara on-site/hybrid/remote, Istanbul hybrid/remote),
+  one rule for the rest of Turkey and one for abroad - and abroad is only ever
+  shown when the posting is open to Turkey (its location names Turkey or a
+  term you count as open: EMEA, worldwide ...; "Remote - Canada" is out, as is
+  a description that says "must be based in Germany"). Boards and
   careers pages import only matches; the rest are counted by the rule they miss
   ("48 read, 3 new, 30 other roles, 7 wrong level, 3 outside your location
   rule"). Found postings wait under "New" until you keep or dismiss them. The
@@ -446,5 +451,5 @@ app/
   web/                       routes + Jinja2 templates + i18n + a little JS
 scripts/                     DB init, Gmail smoke tests, hallucination eval, demo recorder
 docs/ROADMAP.md              phase specs and status
-tests/                       pytest suite (387 tests)
+tests/                       pytest suite (390 tests)
 ```

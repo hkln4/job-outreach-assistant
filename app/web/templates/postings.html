@@ -18,19 +18,71 @@
   </div>
   {% endif %}
 
-  <form method="post" action="/postings/filter" class="filter-bar" data-autosubmit>
-    <input type="hidden" name="seg" value="{{ seg }}">
-    <label>{{ t("postings.filter.roles") }}<input type="text" name="roles" value="{{ rules.roles | join(', ') }}"></label>
-    <label>{{ t("postings.filter.exclude") }}<input type="text" name="exclude" value="{{ rules.exclude | join(', ') }}"></label>
-    <fieldset><legend>{{ t("postings.filter.levels") }}</legend>
-      {% for lv in levels %}<label class="inline"><input type="checkbox" name="levels" value="{{ lv }}" {% if lv in rules.levels %}checked{% endif %}> {{ t("postings.level." ~ lv) }}</label>{% endfor %}
-    </fieldset>
-    <fieldset><legend>{{ t("postings.filter.location") }}</legend>
-      <input type="text" name="home_city" value="{{ rules.home_city }}" class="short" aria-label="{{ t('postings.filter.home_city') }}">
-      <label class="inline"><input type="checkbox" name="elsewhere_remote_only" value="1" {% if rules.elsewhere_remote_only %}checked{% endif %}> {{ t("postings.filter.remote_elsewhere") }}</label>
-    </fieldset>
-    <noscript><button type="submit" class="secondary">{{ t("postings.filter.apply") }}</button></noscript>
-  </form>
+  <details class="card filter-panel" id="posting-filter">
+    <summary>
+      <strong>{{ t("postings.filter.title") }}</strong>
+      <span class="meta-line filter-summary">
+        <span>{{ rules.roles | length }} {{ t("postings.filter.roles_short") }}</span>
+        <span>{% for lv in rules.levels %}{{ t("postings.level." ~ lv) }}{% if not loop.last %}, {% endif %}{% endfor %}</span>
+        {% for p in rules.places %}<span>{{ p.place }}: {% for m in p.modes %}{{ t("postings.mode." ~ m) }}{% if not loop.last %}/{% endif %}{% else %}{{ t("postings.filter.none") }}{% endfor %}</span>{% endfor %}
+        <span>{{ t("postings.filter.turkey_short") }}: {% for m in rules.turkey_modes %}{{ t("postings.mode." ~ m) }}{% if not loop.last %}/{% endif %}{% else %}{{ t("postings.filter.none") }}{% endfor %}</span>
+        <span>{{ t("postings.filter.abroad_short") }}: {% for m in rules.abroad_modes %}{{ t("postings.mode." ~ m) }}{% if not loop.last %}/{% endif %}{% else %}{{ t("postings.filter.none") }}{% endfor %}, {{ t("postings.filter.open_only") }}</span>
+      </span>
+    </summary>
+    <form method="post" action="/postings/filter" data-autosubmit class="filter-form">
+      <input type="hidden" name="seg" value="{{ seg }}">
+      <input type="hidden" name="place_count" value="{{ rules.places | length }}">
+      <div class="field-grid">
+        <label>{{ t("postings.filter.roles") }}<input type="text" name="roles" value="{{ rules.roles | join(', ') }}"></label>
+        <label>{{ t("postings.filter.exclude") }}<input type="text" name="exclude" value="{{ rules.exclude | join(', ') }}"></label>
+      </div>
+      <fieldset class="inline-set"><legend>{{ t("postings.filter.levels") }}</legend>
+        {% for lv in levels %}<label class="inline"><input type="checkbox" name="levels" value="{{ lv }}" {% if lv in rules.levels %}checked{% endif %}> {{ t("postings.level." ~ lv) }}</label>{% endfor %}
+      </fieldset>
+
+      <h3>{{ t("postings.filter.where") }}</h3>
+      <p class="hint">{{ t("postings.filter.where_hint") }}</p>
+      <table class="table place-table">
+        <thead><tr><th>{{ t("postings.filter.place") }}</th>{% for m in modes %}<th>{{ t("postings.mode." ~ m) }}</th>{% endfor %}<th></th></tr></thead>
+        <tbody>
+          {% for p in rules.places %}
+          <tr>
+            <td><input type="text" name="place_{{ loop.index0 }}" value="{{ p.place }}" aria-label="{{ t('postings.filter.place') }}"></td>
+            {% set i = loop.index0 %}
+            {% for m in modes %}<td><input type="checkbox" name="modes_{{ i }}" value="{{ m }}" {% if m in p.modes %}checked{% endif %} aria-label="{{ p.place }} {{ t('postings.mode.' ~ m) }}"></td>{% endfor %}
+            <td><button type="submit" name="remove_place" value="{{ loop.index0 }}" class="link-button danger-text">{{ t("common.remove") }}</button></td>
+          </tr>
+          {% endfor %}
+          {% set n = rules.places | length %}
+          <tr class="new-row">
+            <td><input type="text" name="place_{{ n }}" placeholder="{{ t('postings.filter.add_place') }}" aria-label="{{ t('postings.filter.add_place') }}"></td>
+            {% for m in modes %}<td><input type="checkbox" name="modes_{{ n }}" value="{{ m }}" checked aria-label="{{ t('postings.mode.' ~ m) }}"></td>{% endfor %}
+            <td></td>
+          </tr>
+          <tr>
+            <td><strong>{{ t("postings.filter.turkey_rest") }}</strong></td>
+            {% for m in modes %}<td><input type="checkbox" name="turkey_modes" value="{{ m }}" {% if m in rules.turkey_modes %}checked{% endif %} aria-label="{{ t('postings.filter.turkey_rest') }} {{ t('postings.mode.' ~ m) }}"></td>{% endfor %}
+            <td></td>
+          </tr>
+          <tr>
+            <td><strong>{{ t("postings.filter.abroad") }}</strong><br><span class="hint">{{ t("postings.filter.abroad_hint") }}</span></td>
+            {% for m in modes %}<td><input type="checkbox" name="abroad_modes" value="{{ m }}" {% if m in rules.abroad_modes %}checked{% endif %} aria-label="{{ t('postings.filter.abroad') }} {{ t('postings.mode.' ~ m) }}"></td>{% endfor %}
+            <td></td>
+          </tr>
+        </tbody>
+      </table>
+      <div class="field-grid">
+        <label>{{ t("postings.filter.open_terms") }}<input type="text" name="open_terms" value="{{ rules.open_terms | join(', ') }}"></label>
+        <label>{{ t("postings.filter.bare_remote") }}
+          <select name="bare_remote">
+            <option value="skip" {% if rules.bare_remote == "skip" %}selected{% endif %}>{{ t("postings.filter.bare_remote_skip") }}</option>
+            <option value="show" {% if rules.bare_remote == "show" %}selected{% endif %}>{{ t("postings.filter.bare_remote_show") }}</option>
+          </select>
+        </label>
+      </div>
+      <noscript><button type="submit" class="secondary">{{ t("postings.filter.apply") }}</button></noscript>
+    </form>
+  </details>
 
   <nav class="tabs">
     {% for key in segments %}<a href="/postings?seg={{ key }}" data-swap class="{{ 'active' if seg == key }}">{{ t("postings.seg." ~ key) }}{% if counts[key] %} <span class="count">{{ counts[key] }}</span>{% endif %}</a>{% endfor %}
@@ -88,7 +140,7 @@
               <span class="row-meta">{{ posting.company.name if posting.company else (posting.company_name or "—") }}</span>
               <span class="row-meta">{{ posting.location or "" }}</span>
               {% set v = (posting.fit or {}).get("verdict") %}{% if v %}<span class="badge {{ 'badge-state' if v == 'strong' else '' }}">{{ t("postings.verdict." ~ v) }}</span>{% endif %}
-              {% if not verdict.match %}<span class="badge badge-soft">{{ t("postings.outside_filter") }}</span>{% endif %}</span>
+              {% if not verdict.match %}<span class="badge badge-soft">{{ t("postings.outside_filter") }}: {{ verdict.fails[0].why }}</span>{% endif %}</span>
           </a>
           {% else %}<p class="empty-state">{{ t("postings.empty_" ~ seg) }}</p>{% endfor %}
         </div>

@@ -368,3 +368,55 @@ def test_the_site_check_progress_stops_at_its_total(monkeypatch):
     monkeypatch.setattr(discovery, "check_pending_liveness", lambda db: {"checked": 40, "remaining": 40, "counts": {}})
     page = TestClient(app).get("/discovery/liveness/step?checked=900&total=335").text
     assert "/discovery/liveness/step?" not in page  # finished: no next step
+
+
+def test_location_rules_per_place_and_abroad_only_when_open_to_turkey():
+    from app.postings.location import DEFAULT_LOCATION_RULES, location_check
+
+    rules = {**DEFAULT_LOCATION_RULES, "places": [{"place": "Ankara", "modes": ["onsite", "hybrid", "remote"]},
+                                                  {"place": "Istanbul", "modes": ["hybrid", "remote"]}]}
+
+    def ok(location, mode="", description=""):
+        return location_check(rules, location=location, work_mode=mode, description=description)["ok"]
+
+    assert ok("Ankara, Turkey") and ok("Ankara", "onsite")
+    assert not ok("Istanbul", "onsite") and ok("Istanbul (Hybrid)") and ok("İstanbul", "remote")
+    assert not ok("Izmir") and ok("Izmir", "remote")  # rest of Turkey: remote only
+    # abroad: remote is not enough - it must be open to Turkey
+    assert not ok("Remote - Canada", "remote") and not ok("Mexico City, Mexico", "remote") and not ok("Toronto, ON")
+    assert ok("Remote - EMEA", "remote") and ok("Remote, Worldwide") and ok("Berlin; Remote - Turkey")
+    assert not ok("Remote", "remote")  # no country named: skipped by default
+    assert not ok("Remote - EMEA", "remote", "You must be based in Germany.")
+    assert location_check({**rules, "open_terms": ["europe"]}, location="Remote - Europe", work_mode="remote")["ok"]
+
+
+def test_old_single_city_filter_is_carried_over():
+    from app.postings.location import normalized_rules
+
+    rules = normalized_rules({"home_city": "Istanbul", "elsewhere_remote_only": True})
+    assert rules["places"] == [{"place": "Istanbul", "modes": ["onsite", "hybrid", "remote"]}] and rules["turkey_modes"] == ["remote"]
+
+
+def test_filter_form_adds_and_removes_places():
+    from app.models import OwnerSettings
+
+    init_db()
+    db = SessionLocal()
+    try:
+        client = TestClient(app)
+        base = {"seg": "new", "roles": "ml", "levels": ["junior"], "turkey_modes": ["remote"], "abroad_modes": ["remote"],
+                "open_terms": "turkey, emea", "bare_remote": "skip"}
+        client.post("/postings/filter", data={**base, "place_count": "1", "place_0": "Ankara", "modes_0": ["onsite", "hybrid", "remote"],
+                                              "place_1": "Istanbul", "modes_1": ["hybrid", "remote"]})
+        db.expire_all()
+        places = db.query(OwnerSettings).first().posting_filter["places"]
+        assert [p["place"] for p in places] == ["Ankara", "Istanbul"] and places[1]["modes"] == ["hybrid", "remote"]
+        client.post("/postings/filter", data={**base, "place_count": "2", "place_0": "Ankara", "modes_0": ["onsite"],
+                                              "place_1": "Istanbul", "modes_1": ["hybrid"], "remove_place": "1"})
+        db.expire_all()
+        assert [p["place"] for p in db.query(OwnerSettings).first().posting_filter["places"]] == ["Ankara"]
+    finally:
+        settings = db.query(OwnerSettings).first()
+        settings.posting_filter = {}
+        db.commit()
+        db.close()

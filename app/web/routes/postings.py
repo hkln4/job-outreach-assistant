@@ -20,6 +20,7 @@ from app.postings.ats import SUPPORTED_PROVIDERS, boards_from_research, import_b
 from app.postings.careers_watch import watch_all
 from app.postings.evaluation import evaluate_fit
 from app.postings.filter import LEVELS, check_posting, owner_filter, parse_terms
+from app.postings.location import MODES
 from app.postings.search import SearchNotConfigured, discover_boards
 from app.postings.service import (
     add_posting,
@@ -129,6 +130,7 @@ def postings_index(
         "show_all": bool(show_all),
         "rules": rules,
         "levels": LEVELS,
+        "modes": MODES,
         "error": error,
         "report": _decode_report(report),
         "boards": db.query(AtsBoard).order_by(AtsBoard.company_name).all() if seg == "sources" else [],
@@ -156,28 +158,33 @@ def _decode_report(raw: str) -> list[dict]:
 
 
 @router.post("/filter")
-def save_filter(
-    seg: str = Form(""),
-    roles: str = Form(""),
-    exclude: str = Form(""),
-    levels: list[str] = Form([]),
-    home_city: str = Form(""),
-    elsewhere_remote_only: str = Form(""),
-    db: Session = Depends(get_db),
-):
+async def save_filter(request: Request, db: Session = Depends(get_db)):
+    """The whole filter in one form: roles, excluded words, levels, the
+    owner's places (each with its work modes; rows are added by filling the
+    empty one and removed with its button), the rest of Turkey, abroad."""
+    form = await request.form()
+    remove = str(form.get("remove_place", ""))
+    places = []
+    for index in range(int(form.get("place_count", 0) or 0) + 1):
+        place = str(form.get(f"place_{index}", "")).strip()
+        if place and str(index) != remove:
+            places.append({"place": place, "modes": [m for m in form.getlist(f"modes_{index}") if m in MODES]})
     settings = db.query(OwnerSettings).first()
     if settings is None:
         settings = OwnerSettings()
         db.add(settings)
     settings.posting_filter = {
-        "roles": parse_terms(roles),
-        "exclude": parse_terms(exclude),
-        "levels": [lv for lv in levels if lv in LEVELS],
-        "home_city": home_city.strip(),
-        "elsewhere_remote_only": bool(elsewhere_remote_only),
+        "roles": parse_terms(str(form.get("roles", ""))),
+        "exclude": parse_terms(str(form.get("exclude", ""))),
+        "levels": [lv for lv in form.getlist("levels") if lv in LEVELS],
+        "places": places,
+        "turkey_modes": [m for m in form.getlist("turkey_modes") if m in MODES],
+        "abroad_modes": [m for m in form.getlist("abroad_modes") if m in MODES],
+        "open_terms": parse_terms(str(form.get("open_terms", ""))),
+        "bare_remote": "show" if form.get("bare_remote") == "show" else "skip",
     }
     db.commit()
-    return _back(seg)
+    return _back(str(form.get("seg", "")))
 
 
 @router.post("")

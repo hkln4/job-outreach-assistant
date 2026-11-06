@@ -6,8 +6,9 @@ Three rules, all owner-editable on the postings page:
   none of the excluded words;
 - level: intern / junior / mid (no level stated) / senior, from the title,
   else from the years of experience asked;
-- location: the home city in any work mode; anywhere else (another city or
-  abroad) only when the posting is remote.
+- location: the owner's own places, each with the work modes he accepts
+  there; the rest of Turkey; abroad only when open to Turkey (see
+  app/postings/location.py).
 
 Postings from boards and careers pages that don't match are counted per
 reason and never imported. A posting the owner pastes is never dropped -
@@ -16,7 +17,8 @@ it just shows which rule it misses.
 import re
 
 from app.applications.synonyms import fold
-from app.postings.gates import JUNIOR_RE, SENIOR_RE, YEARS_RE, location_gate
+from app.postings.gates import JUNIOR_RE, SENIOR_RE, YEARS_RE
+from app.postings.location import DEFAULT_LOCATION_RULES, location_check, normalized_rules
 
 LEVELS = ("intern", "junior", "mid", "senior")
 
@@ -27,8 +29,7 @@ DEFAULT_FILTER = {
     ],
     "exclude": ["sales", "frontend", "ios", "android", "sap", "manager"],
     "levels": ["intern", "junior", "mid"],
-    "home_city": "Ankara",
-    "elsewhere_remote_only": True,
+    **DEFAULT_LOCATION_RULES,
 }
 
 # A word in the filter also matches these spellings in a title (folded,
@@ -52,8 +53,6 @@ ALIASES = {
 }
 INTERN_RE = re.compile(r"\b(intern(ship)?|stajyer|staj|trainee)\b", re.IGNORECASE)
 MANAGER_RE = re.compile(r"\b(head of|director|direktor|vp|chief|manager|yonetici|mudur|architect|mimar)\b", re.IGNORECASE)
-REMOTE_RE = re.compile(r"\b(remote|uzaktan|work from home|wfh|anywhere|fully[- ]remote|tamamen uzaktan)\b", re.IGNORECASE)
-HYBRID_RE = re.compile(r"\b(hybrid|hibrit)\b", re.IGNORECASE)
 
 
 def normalized(raw: dict | None) -> dict:
@@ -62,6 +61,7 @@ def normalized(raw: dict | None) -> dict:
     data["roles"] = [r.strip() for r in data.get("roles") or [] if r.strip()]
     data["exclude"] = [r.strip() for r in data.get("exclude") or [] if r.strip()]
     data["levels"] = [lv for lv in data.get("levels") or [] if lv in LEVELS]
+    data.update(normalized_rules(raw))
     return data
 
 
@@ -98,21 +98,6 @@ def level_of(title: str, description: str = "") -> str:
     return "mid"
 
 
-def work_mode_of(location: str, title: str, work_mode: str = "", description: str = "") -> str:
-    mode = (work_mode or "").lower()
-    if mode in ("remote", "hybrid", "onsite", "on-site"):
-        return "onsite" if mode == "on-site" else mode
-    text = fold(f"{title} {location}")
-    if REMOTE_RE.search(text):
-        return "remote"
-    if HYBRID_RE.search(text):
-        return "hybrid"
-    head = fold((description or "")[:600])
-    if REMOTE_RE.search(head):
-        return "remote"
-    return "unknown"
-
-
 def check(rules: dict, *, title: str, location: str = "", description: str = "", work_mode: str = "", unknown_location_ok: bool = False) -> dict:
     """{"match": bool, "fails": [{"rule": role|level|location, "why": ...}],
     "level": ..., "work_mode": ...}. Every failing rule is listed, so the
@@ -131,21 +116,10 @@ def check(rules: dict, *, title: str, location: str = "", description: str = "",
     if rules["levels"] and level not in rules["levels"]:
         fails.append({"rule": "level", "why": level})
 
-    mode = work_mode_of(location, title, work_mode, description)
-    home = fold(rules.get("home_city") or "")
-    place = fold(location or "")
-    gate = location_gate(location, description)
-    if gate["result"] == "reject" and "not open" in gate.get("note", ""):
-        fails.append({"rule": "location", "why": gate["note"]})
-    elif home and _has(home, place):
-        pass  # the home city: any work mode
-    elif mode == "remote":
-        pass  # elsewhere, remote - fine
-    elif not place.strip():
-        if not unknown_location_ok:
-            fails.append({"rule": "location", "why": "no location given"})
-    elif rules.get("elsewhere_remote_only", True):
-        fails.append({"rule": "location", "why": f"{location} and not remote"})
+    place = location_check(rules, location=location, title=title, description=description, work_mode=work_mode, unknown_ok=unknown_location_ok)
+    if not place["ok"]:
+        fails.append({"rule": "location", "why": place["why"]})
+    mode = place["mode"]
     return {"match": not fails, "fails": fails, "level": level, "work_mode": mode}
 
 
