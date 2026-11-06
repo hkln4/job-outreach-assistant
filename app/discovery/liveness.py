@@ -139,7 +139,9 @@ def check_liveness(url: str, client: httpx.Client | None = None, resolver=_resol
     """{status, signals[{name, value, evidence, url}], checked_at, final_url}."""
     now = now or datetime.now(timezone.utc)
     signals: list[dict] = []
-    result = {"status": "UNKNOWN", "signals": signals, "checked_at": now.isoformat(), "final_url": url}
+    # "text" is always present, empty when the page couldn't be read: its
+    # presence marks a check from the version that keeps the homepage text
+    result = {"status": "UNKNOWN", "signals": signals, "checked_at": now.isoformat(), "final_url": url, "text": ""}
 
     def done(status: str) -> dict:
         result["status"] = status

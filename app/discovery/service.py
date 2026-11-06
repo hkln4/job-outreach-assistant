@@ -202,7 +202,7 @@ def check_pending_liveness(db: Session, limit: int = 40, force: bool = False) ->
     counts: dict[str, int] = {}
     for candidate in candidates:
         result = results.get(candidate.website_url) or {}
-        candidate.liveness = {**(candidate.liveness or {}), **result}
+        candidate.liveness = {"text": "", **(candidate.liveness or {}), **result}  # checked now - never re-picked
         counts[result.get("status", "UNKNOWN")] = counts.get(result.get("status", "UNKNOWN"), 0) + 1
     db.commit()
     remaining = sum(1 for c in query.all() if needs_site_check(c))

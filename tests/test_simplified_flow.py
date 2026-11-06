@@ -332,3 +332,39 @@ def test_empty_or_non_html_pages_are_read_quietly(caplog):
             assert _readable_text(html) == ""
     assert not [r for r in caplog.records if r.levelno >= logging.ERROR]
     assert _readable_text("<html><body><p>Hello world</p></body></html>") == "Hello world"
+
+
+def test_a_site_that_cannot_be_read_is_checked_once_not_forever(monkeypatch):
+    """A failing or empty site used to have no "text", so it was picked again
+    on every step and the progress ran past its total (900/335)."""
+    import app.discovery.service as service
+    from app.models import CandidateStatus, CompanyCandidate, DiscoverySource
+
+    init_db()
+    db = SessionLocal()
+    try:
+        src = DiscoverySource(name="Simp loop", url="https://loop.example", kind="html")
+        db.add(src)
+        db.commit()
+        db.add(CompanyCandidate(source_id=src.id, name="Simp Loop Co", website_url="https://simp-loop-unique.example", status=CandidateStatus.PENDING,
+                                liveness={"status": "ALIVE"}))  # an old check, from before the text was kept
+        db.commit()
+        # the site now fails: the result has a status but no text at all
+        monkeypatch.setattr(service, "check_many", lambda urls: {u: {"status": "UNKNOWN", "signals": []} for u in urls})
+        first = service.check_pending_liveness(db, limit=1000)
+        second = service.check_pending_liveness(db, limit=1000)
+        assert first["checked"] >= 1 and second["checked"] == 0 and second["remaining"] == 0
+    finally:
+        db.rollback()
+        db.query(CompanyCandidate).filter(CompanyCandidate.name == "Simp Loop Co").delete(synchronize_session=False)
+        db.query(DiscoverySource).filter(DiscoverySource.name == "Simp loop").delete(synchronize_session=False)
+        db.commit()
+        db.close()
+
+
+def test_the_site_check_progress_stops_at_its_total(monkeypatch):
+    import app.web.routes.discovery as discovery
+
+    monkeypatch.setattr(discovery, "check_pending_liveness", lambda db: {"checked": 40, "remaining": 40, "counts": {}})
+    page = TestClient(app).get("/discovery/liveness/step?checked=900&total=335").text
+    assert "/discovery/liveness/step?" not in page  # finished: no next step

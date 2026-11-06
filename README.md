@@ -446,5 +446,5 @@ app/
   web/                       routes + Jinja2 templates + i18n + a little JS
 scripts/                     DB init, Gmail smoke tests, hallucination eval, demo recorder
 docs/ROADMAP.md              phase specs and status
-tests/                       pytest suite (384 tests)
+tests/                       pytest suite (387 tests)
 ```

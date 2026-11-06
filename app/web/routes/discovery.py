@@ -303,7 +303,8 @@ def liveness_step(request: Request, checked: int = 0, total: int = 0, db: Sessio
     summary = check_pending_liveness(db)
     checked += summary["checked"]
     total = total or checked + summary["remaining"]
-    finished = summary["remaining"] == 0 or summary["checked"] == 0
+    # stop at the planned total too, so a site that keeps failing can never loop
+    finished = summary["remaining"] == 0 or summary["checked"] == 0 or (total and checked >= total)
     next_url = "/discovery?live=DEAD" if finished else f"/discovery/liveness/step?checked={checked}&total={total}"
     return render(
         templates,
