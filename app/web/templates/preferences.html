@@ -71,6 +71,16 @@
       {% endfor %}
     </tbody>
   </table>
+  <details class="section card" id="letter-template">
+    <summary><strong>{{ t("profile.cover_letter_template_title") }}</strong> <span class="hint">{{ t("profile.cover_letter_template_short") }}</span></summary>
+    <p class="hint">{{ t("profile.cover_letter_template_hint") }}</p>
+    <form method="post" action="/profile/cover-letter-template">
+      <input type="hidden" name="next" value="/preferences">
+      <textarea name="cover_letter_template" rows="8" aria-label="{{ t('profile.cover_letter_template_title') }}">{{ cover_letter_template }}</textarea>
+      <button type="submit" class="secondary">{{ t("common.save") }}</button>
+    </form>
+  </details>
+
   <details class="section" id="style-section">
     <summary><strong>{{ t("style.title") }}</strong> <span class="hint">{{ t("style.hint") }}</span></summary>
     {% include "_style_section.html" %}

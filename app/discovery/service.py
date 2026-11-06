@@ -184,13 +184,20 @@ def reject(db: Session, candidate_ids: list[int]) -> int:
     return rejected
 
 
+def needs_site_check(candidate: CompanyCandidate) -> bool:
+    """No liveness yet, or a check from before the homepage text was kept
+    (the sector filter reads that text)."""
+    liveness = candidate.liveness or {}
+    return not liveness.get("status") or ("text" not in liveness and liveness.get("status") != "DEAD")
+
+
 def check_pending_liveness(db: Session, limit: int = 40, force: bool = False) -> dict:
     """Liveness for the next `limit` pending candidates that have a website
-    and no check yet (or all of them again with `force`). No LLM."""
+    and need a check (or all of them again with `force`). No LLM."""
     query = db.query(CompanyCandidate).filter(
         CompanyCandidate.status == CandidateStatus.PENDING, CompanyCandidate.website_url.isnot(None)
     )
-    candidates = [c for c in query.order_by(CompanyCandidate.id).all() if force or not (c.liveness or {}).get("status")][:limit]
+    candidates = [c for c in query.order_by(CompanyCandidate.id).all() if force or needs_site_check(c)][:limit]
     results = check_many([c.website_url for c in candidates])
     counts: dict[str, int] = {}
     for candidate in candidates:
@@ -198,5 +205,5 @@ def check_pending_liveness(db: Session, limit: int = 40, force: bool = False) ->
         candidate.liveness = {**(candidate.liveness or {}), **result}
         counts[result.get("status", "UNKNOWN")] = counts.get(result.get("status", "UNKNOWN"), 0) + 1
     db.commit()
-    remaining = sum(1 for c in query.all() if not (c.liveness or {}).get("status"))
+    remaining = sum(1 for c in query.all() if needs_site_check(c))
     return {"checked": len(candidates), "counts": counts, "remaining": remaining}

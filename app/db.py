@@ -85,6 +85,7 @@ _COLUMN_MIGRATIONS = [
     ("tech_skills", "tier_set_by_owner", "BOOLEAN DEFAULT 0"),
     ("job_postings", "inbox", "BOOLEAN DEFAULT 0"),
     ("owner_settings", "posting_filter", "JSON DEFAULT '{}'"),
+    ("owner_settings", "discovery_filter", "JSON DEFAULT '{}'"),
 ]
 
 

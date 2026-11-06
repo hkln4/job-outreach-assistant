@@ -11,7 +11,7 @@ from app.cv_builder.bank import BULLETS_FOR_PRIORITY, approve_passing, can_appro
 from app.cv_builder.consistency import check_consistency
 from app.cv_builder.render import RenderUnavailable
 from app.cv_builder.service import approve, create_for_application, render_generated, update_selection
-from app.cv_builder.skills import GROUP_TITLES, GROUPS, add_manual, evidence_status, import_cv_skills, rebuild_skills, selected_project_item_ids
+from app.cv_builder.skills import GROUPS, GROUP_TITLES, add_manual, by_importance, evidence_status, import_cv_skills, importance, rebuild_skills, selected_project_item_ids
 from app.db import get_db
 from app.llm.base import LLMProvider
 from app.models import CV, Application, Bullet, CVProject, GeneratedCV, OwnerSettings, ProfileItem, TechSkill
@@ -43,7 +43,7 @@ def cv_builder_page(request: Request, error: str = "", db: Session = Depends(get
     if not db.query(CVProject).count():
         suggest_projects(db)  # first visit: start from suggestions, not an empty page
     selected_ids = selected_project_item_ids(db)
-    skills = db.query(TechSkill).order_by(TechSkill.sort_order, TechSkill.id).all()
+    skills = by_importance(db.query(TechSkill).all())
     projects = db.query(CVProject).order_by(CVProject.selected.desc(), CVProject.sort_order).all()
     bullets = [b for p in projects if p.selected for b in p.bullets]
     stale = [b for b in bullets if b.status == "draft" and "ats" not in (b.flags or {})]
@@ -68,6 +68,7 @@ def cv_builder_page(request: Request, error: str = "", db: Session = Depends(get
             "consistency": check_consistency(db),
             "can_approve": can_approve,
             "bullets_for_priority": BULLETS_FOR_PRIORITY,
+            "importance": importance,
             "progress": {
                 "projects": sum(1 for p in projects if p.selected),
                 "approved": sum(1 for b in bullets if b.status == "approved"),

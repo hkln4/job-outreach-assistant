@@ -436,10 +436,10 @@ button.small, .button-link.small,
 .evidence-unused { opacity: 0.7; }
 .row-decide { display: flex; gap: 0.3rem; }
 .table .row-decide button, .row-decide button {
-  width: var(--control-h-sm); height: var(--control-h-sm); padding: 0; border-radius: 999px;
-  font-size: 0.9rem; background: var(--surface-2); border: 1px solid var(--border);
+  height: var(--control-h-sm); padding: 0 0.6rem; border-radius: var(--control-radius);
+  font-size: var(--control-fs-sm); background: transparent; border: 1px solid var(--border);
 }
-.row-decide .decide-yes { color: var(--success); }
+.row-decide .decide-yes { color: var(--fg); }
 .row-decide .decide-yes:hover { background: var(--success); color: var(--success-fg); border-color: var(--success); }
 .row-decide .decide-no { color: var(--danger); }
 .row-decide .decide-no:hover { background: var(--danger); color: #fff; border-color: var(--danger); }
@@ -1137,3 +1137,26 @@ button.danger.secondary, .secondary.danger { color: var(--danger); border-color:
 .field-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr)); gap: 0.25rem 1rem; }
 .field-grid label { margin-bottom: 0.4rem; }
 .card label > select, .card label > input { max-width: 36rem; }
+/* Discovery: numbered steps, then the decision list */
+ol.flow { list-style: none; counter-reset: step; padding: 0; margin: 0 0 1.25rem; display: grid; gap: 0.75rem; }
+ol.flow > li { counter-increment: step; }
+ol.flow > li > h2::before { content: counter(step) ". "; color: var(--fg-muted); }
+button.danger:not(.secondary) { background: var(--danger); color: #fff; border: 1px solid var(--danger); }
+button.danger:not(.secondary):hover { background: var(--danger-hover); }
+.discovery-table col.col-decide { width: 9.5rem; }
+.row-decide { flex-direction: column; align-items: stretch; }
+.row-decide button { width: 100%; white-space: nowrap; }
+.row-decide .decide-no { color: var(--danger); border-color: var(--danger); }
+.flow .filter-bar label { flex: 1 1 20rem; }
+.flow .filter-bar input[type="text"] { width: 100%; }
+/* Profile: one "about me" document */
+.doc { line-height: 1.65; max-width: 75ch; font-size: 0.95rem; }
+.doc h3 { margin: 1.1rem 0 0.4rem; font-size: 1.05rem; }
+.doc h4 { margin: 0.9rem 0 0.3rem; font-size: 0.98rem; }
+.doc h5 { margin: 0.7rem 0 0.3rem; font-size: 0.92rem; color: var(--fg-muted); }
+details.plain > summary { display: none; }
+.question-group { margin: 0.5rem 0 1rem; }
+.question { display: flex; gap: 0.5rem; align-items: flex-end; max-width: 48rem; }
+.question label input { max-width: none; }
+.question label { flex: 1; margin-bottom: 0.4rem; }
+.danger-text { color: var(--danger) !important; }

@@ -14,17 +14,20 @@ from app.db import get_db
 from app.config import get_settings
 from app.discovery.extra_sources import MAPPABLE_FIELDS, guess_mapping, table_rows
 from app.discovery.liveness import check_liveness
+from app.discovery.sector import candidate_sector, owner_sector_filter
 from app.discovery.service import (
     approve,
     check_pending_liveness,
     ensure_default_sources,
     import_source,
+    needs_site_check,
     reconcile_pending,
     reject,
 )
 from app.discovery.triage import triage_candidate
 from app.llm.base import LLMProvider
-from app.models import CandidateStatus, CompanyCandidate, DiscoverySource
+from app.models import CandidateStatus, CompanyCandidate, DiscoverySource, OwnerSettings
+from app.postings.filter import parse_terms
 from app.web.deps import get_llm
 from app.web.files import safe_uploaded_filename
 from app.web.render import render
@@ -53,10 +56,14 @@ def _liveness_status(candidate: CompanyCandidate) -> str:
 
 
 def _screening_queue(db: Session, source_id: int, include_dead: bool) -> list[CompanyCandidate]:
-    """Unscreened candidates; DEAD sites are skipped (no LLM call for a dead
-    site) unless the owner forces them."""
+    """Unscreened candidates; dead sites and off-sector companies are
+    skipped (no LLM call for them) unless the owner forces them."""
+    rules = owner_sector_filter(db)
     candidates = _unscreened_query(db, source_id).order_by(CompanyCandidate.id).all()
-    return [c for c in candidates if include_dead or _liveness_status(c) != "DEAD"]
+    return [
+        c for c in candidates
+        if include_dead or (_liveness_status(c) != "DEAD" and candidate_sector(rules, c)["result"] != "off")
+    ]
 
 
 @router.get("")
@@ -69,6 +76,7 @@ def discovery_page(
     imported: str = "",
     live: str = "",
     liveness_checked: str = "",
+    sector: str = "fit",
     db: Session = Depends(get_db),
 ):
     ensure_default_sources(db)
@@ -80,7 +88,17 @@ def discovery_page(
         query = query.filter(CompanyCandidate.status == CandidateStatus[status])
     if source_id:
         query = query.filter(CompanyCandidate.source_id == source_id)
+    rules = owner_sector_filter(db)
     candidates = query.all()
+    sectors = {c.id: candidate_sector(rules, c) for c in candidates}
+    pending = [c for c in db.query(CompanyCandidate).filter(CompanyCandidate.status == CandidateStatus.PENDING).all()]
+    pending_sectors = [candidate_sector(rules, c)["result"] for c in pending]
+    sector_counts = {key: pending_sectors.count(key) for key in ("match", "off", "unclear")}
+    dead_count = sum(1 for c in pending if _liveness_status(c) == "DEAD")
+    if sector == "fit":
+        candidates = [c for c in candidates if sectors[c.id]["result"] != "off"]
+    elif sector in ("match", "off", "unclear"):
+        candidates = [c for c in candidates if sectors[c.id]["result"] == sector]
     if fit == "unscreened":
         candidates = [c for c in candidates if c.triaged_at is None]
     elif fit:
@@ -106,7 +124,7 @@ def discovery_page(
             "pending": db.query(CompanyCandidate)
             .filter(CompanyCandidate.source_id == s.id, CompanyCandidate.status == CandidateStatus.PENDING)
             .count(),
-            "unscreened": _unscreened_query(db, s.id).count(),
+            "unscreened": len(_screening_queue(db, s.id, False)),
             "dead": sum(1 for c in _unscreened_query(db, s.id).all() if _liveness_status(c) == "DEAD"),
         }
         for s in sources
@@ -128,10 +146,12 @@ def discovery_page(
             "has_hard_flag": _has_hard_flag,
             "filter_live": live,
             "liveness_checked": liveness_checked.split(",") if liveness_checked else None,
-            "unchecked_liveness": sum(
-                1 for c in db.query(CompanyCandidate).filter(CompanyCandidate.status == CandidateStatus.PENDING, CompanyCandidate.website_url.isnot(None)).all()
-                if not _liveness_status(c)
-            ),
+            "unchecked_liveness": sum(1 for c in pending if c.website_url and needs_site_check(c)),
+            "sectors": sectors,
+            "sector_rules": rules,
+            "sector_counts": sector_counts,
+            "dead_count": dead_count,
+            "filter_sector": sector,
         },
     )
 
@@ -324,6 +344,33 @@ def set_candidate_website(
         candidate.triaged_at = None
         db.commit()
     return RedirectResponse(url=_safe_return(return_to), status_code=303)
+
+
+@router.post("/sector-filter")
+def save_sector_filter(include: str = Form(""), exclude: str = Form(""), db: Session = Depends(get_db)):
+    settings = db.query(OwnerSettings).first()
+    if settings is None:
+        settings = OwnerSettings()
+        db.add(settings)
+    settings.discovery_filter = {"include": parse_terms(include), "exclude": parse_terms(exclude)}
+    db.commit()
+    return RedirectResponse(url="/discovery", status_code=303)
+
+
+@router.post("/reject-filtered")
+def reject_filtered(which: str = Form(...), db: Session = Depends(get_db)):
+    """Reject every pending candidate the free checks ruled out: "dead" sites
+    or "off"-sector companies. The owner clicks it; nothing goes on its own."""
+    rules = owner_sector_filter(db)
+    pending = db.query(CompanyCandidate).filter(CompanyCandidate.status == CandidateStatus.PENDING).all()
+    if which == "dead":
+        ids = [c.id for c in pending if _liveness_status(c) == "DEAD"]
+    elif which == "off":
+        ids = [c.id for c in pending if candidate_sector(rules, c)["result"] == "off"]
+    else:
+        ids = []
+    reject(db, ids)
+    return RedirectResponse(url="/discovery", status_code=303)
 
 
 @router.post("/decide")

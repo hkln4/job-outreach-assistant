@@ -11,35 +11,25 @@
   </div>
   {% endif %}
 
-  <div class="card">
-    <h2>{{ t("discovery.sources_title") }}</h2>
-    <table class="table">
-      <thead><tr><th>{{ t("discovery.source") }}</th><th class="cell-nowrap">{{ t("discovery.city") }}</th><th class="cell-nowrap">{{ t("discovery.pending") }}</th><th class="cell-nowrap">{{ t("discovery.unscreened") }}</th><th></th></tr></thead>
-      <tbody>
+  <ol class="flow">
+    <li class="card">
+      <h2>{{ t("discovery.step1_title") }}</h2>
+      <p class="hint">{{ t("discovery.step1_hint") }}</p>
+      <div class="rows">
       {% for s in sources %}
-        <tr>
-          <td>
-            <a href="/discovery?source_id={{ s.id }}">{{ s.name }}</a>
-            <span class="hint source-url" title="{{ s.url }}">{{ s.url }}</span>
-            {% if s.last_imported_at %}<span class="hint cell-line">{{ t("discovery.last_import") }} {{ s.last_imported_at.strftime("%Y-%m-%d") }}</span>{% endif %}
-            {% if s.last_error %}<span class="cell-line"></span><span class="badge badge-hard">{{ t("discovery.import_failed") }}</span> <span class="hint">{{ s.last_error }}</span>{% endif %}
-          </td>
-          <td class="cell-nowrap">{{ s.city or "—" }}</td>
-          <td>{{ stats[s.id].pending }}</td>
-          <td>{{ stats[s.id].unscreened }}</td>
-          <td class="row-action">
+        <div class="row">
+          <span class="row-main"><a href="/discovery?source_id={{ s.id }}"><strong>{{ s.name }}</strong></a>
+            <span class="row-meta">{{ stats[s.id].pending }} {{ t("discovery.waiting") }}</span>
+            {% if s.last_imported_at %}<span class="row-meta">{{ t("discovery.last_import") }} {{ s.last_imported_at.strftime("%Y-%m-%d") }}</span>{% endif %}
+            {% if s.last_error %}<span class="badge badge-hard" title="{{ s.last_error }}">{{ t("discovery.import_failed") }}</span>{% endif %}</span>
+          <span class="row-actions">
             <form method="post" action="/discovery/sources/{{ s.id }}/import" data-loading-text="{{ t('discovery.importing') }}">
-              <button type="submit" class="secondary">{{ t("discovery.import_button") }}</button>
+              <button type="submit">{{ t("discovery.import_button") }}</button>
             </form>
-            {% if stats[s.id].unscreened %}
-            <a class="button-link" href="/discovery/triage/step?source_id={{ s.id }}">{{ t("discovery.screen_button") }}</a>
-            {% if stats[s.id].dead %}<span class="hint cell-line">{{ stats[s.id].dead }} {{ t("discovery.dead_skipped") }} <a href="/discovery/triage/step?source_id={{ s.id }}&include_dead=1">{{ t("discovery.screen_anyway") }}</a></span>{% endif %}
-            {% endif %}
-          </td>
-        </tr>
+          </span>
+        </div>
       {% endfor %}
-      </tbody>
-    </table>
+      </div>
     <details>
       <summary>{{ t("discovery.add_source") }}</summary>
       <p class="hint">{{ t("discovery.add_source_hint") }}</p>
@@ -87,18 +77,51 @@
         <button type="submit">{{ t("common.save") }}</button>
       </form>
     </details>
-  </div>
+    </li>
 
-  <div class="card">
-    <h2>{{ t("discovery.liveness_title") }}</h2>
-    <p class="hint">{{ t("discovery.liveness_hint") }}</p>
-    {% if unchecked_liveness %}
-      <a class="button-link" href="/discovery/liveness/step">{{ t("discovery.liveness_button") }} ({{ unchecked_liveness }})</a>
-    {% else %}
-      <p class="muted">{{ t("discovery.liveness_all_checked") }}</p>
-    {% endif %}
-  </div>
+    <li class="card">
+      <h2>{{ t("discovery.step2_title") }}</h2>
+      <p class="hint">{{ t("discovery.step2_hint") }}</p>
+      <form method="post" action="/discovery/sector-filter" class="filter-bar" data-autosubmit>
+        <label>{{ t("discovery.sector.include") }}<input type="text" name="include" value="{{ sector_rules.include | join(', ') }}"></label>
+        <label>{{ t("discovery.sector.exclude") }}<input type="text" name="exclude" value="{{ sector_rules.exclude | join(', ') }}"></label>
+        <noscript><button type="submit" class="secondary">{{ t("common.save") }}</button></noscript>
+      </form>
+      <div class="toolbar section">
+        {% if unchecked_liveness %}
+          <a class="button-link" href="/discovery/liveness/step">{{ t("discovery.liveness_button") }} ({{ unchecked_liveness }})</a>
+        {% else %}<span class="hint">{{ t("discovery.liveness_all_checked") }}</span>{% endif %}
+      </div>
+      <p class="meta-line">
+        <span>{{ sector_counts.match }} {{ t("discovery.count.match") }}</span>
+        <span>{{ sector_counts.unclear }} {{ t("discovery.count.unclear") }}</span>
+        <span>{{ sector_counts.off }} {{ t("discovery.count.off") }}</span>
+        <span>{{ dead_count }} {{ t("discovery.count.dead") }}</span>
+      </p>
+      <div class="toolbar">
+        {% if sector_counts.off %}
+        <a class="button-link secondary" href="/discovery?sector=off">{{ t("discovery.look_off") }}</a>
+        <form method="post" action="/discovery/reject-filtered" onsubmit="return confirm('{{ t('discovery.reject_off_confirm') }}');"><input type="hidden" name="which" value="off"><button type="submit" class="danger">{{ t("discovery.reject_off") }} ({{ sector_counts.off }})</button></form>
+        {% endif %}
+        {% if dead_count %}
+        <form method="post" action="/discovery/reject-filtered" onsubmit="return confirm('{{ t('discovery.reject_dead_confirm') }}');"><input type="hidden" name="which" value="dead"><button type="submit" class="danger">{{ t("discovery.reject_dead") }} ({{ dead_count }})</button></form>
+        {% endif %}
+      </div>
+    </li>
 
+    <li class="card">
+      <h2>{{ t("discovery.step3_title") }}</h2>
+      <p class="hint">{{ t("discovery.step3_hint") }}</p>
+      <div class="toolbar">
+        {% for s in sources if stats[s.id].unscreened %}
+          <a class="button-link secondary" href="/discovery/triage/step?source_id={{ s.id }}">{{ t("discovery.screen_button") }}: {{ s.name }} ({{ stats[s.id].unscreened }})</a>
+        {% else %}<span class="hint">{{ t("discovery.nothing_to_screen") }}</span>{% endfor %}
+      </div>
+    </li>
+  </ol>
+
+  <h2>{{ t("discovery.step4_title") }}</h2>
+  <p class="hint">{{ t("discovery.step4_hint") }}</p>
   <form method="get" action="/discovery" class="inline-form">
     <select name="source_id">
       <option value="0">{{ t("discovery.all_sources") }}</option>
@@ -118,6 +141,9 @@
       {% for st in ("ALIVE", "STALE", "UNKNOWN", "DEAD", "unchecked") %}
       <option value="{{ st }}" {% if filter_live == st %}selected{% endif %}>{{ t("discovery.live." ~ st) }}</option>
       {% endfor %}
+    </select>
+    <select name="sector">
+      {% for key in ("fit", "match", "off", "unclear", "all") %}<option value="{{ key }}" {% if filter_sector == key %}selected{% endif %}>{{ t("discovery.sector_filter." ~ key) }}</option>{% endfor %}
     </select>
     <label><input type="checkbox" name="hide_hard" value="1" {% if filter_hide_hard %}checked{% endif %}> {{ t("discovery.hide_hard") }}</label>
     <button type="submit" class="secondary">{{ t("discovery.filter") }}</button>
@@ -164,6 +190,9 @@
             {% if tr.summary %}{{ tr.summary }}{% endif %}
             {% if tr.sector %}<br><span class="hint">{{ tr.sector }}</span>{% endif %}
             {% if c.sector %}<br><span class="hint">{{ t("discovery.directory_sector") }} {{ c.sector }}</span>{% endif %}
+            {% set sc = sectors.get(c.id) or {} %}
+            {% if sc.result == "match" %}<br><span class="badge badge-state" title="{{ sc.evidence }}">{{ t("discovery.sector_badge.match") }}: {{ sc.hits[:3] | join(", ") }}</span>
+            {% elif sc.result == "off" %}<br><span class="badge badge-soft" title="{{ sc.evidence }}">{{ t("discovery.sector_badge.off") }}{% if sc.excluded %}: {{ sc.excluded[:3] | join(", ") }}{% endif %}</span>{% endif %}
             {% if tr.error %}<span class="muted">{{ tr.error }}</span>{% endif %}
             {% for f in tr.keyword_flags or [] %}
             <div class="evidence">

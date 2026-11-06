@@ -169,6 +169,8 @@ class OwnerSettings(Base):
     # The posting filter (app/postings/filter.py): roles, excluded words,
     # levels, home city, remote-only elsewhere. Empty = the defaults.
     posting_filter: Mapped[dict] = mapped_column(JSON, default=dict)
+    # Discovery sector filter (app/discovery/sector.py): include / exclude words.
+    discovery_filter: Mapped[dict] = mapped_column(JSON, default=dict)
     cv_template_approved: Mapped[bool] = mapped_column(default=False)
 
 

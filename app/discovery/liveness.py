@@ -195,6 +195,9 @@ def check_liveness(url: str, client: httpx.Client | None = None, resolver=_resol
                     html, text, final_url = alt.text, alt_text, str(alt.url)
                     break
         signals.append(_signal("text_chars", len(text), "", final_url))
+        # kept for the code-side sector filter (never sent to a model from here)
+        title = BeautifulSoup(html, "html.parser").title
+        result["text"] = ((title.get_text(" ", strip=True) + "\n") if title else "") + text[:4000]
 
         parked = _is_parked(BeautifulSoup(html, "html.parser").get_text(" ") if len(text) < MIN_TEXT_CHARS * 5 else text)
         if parked:

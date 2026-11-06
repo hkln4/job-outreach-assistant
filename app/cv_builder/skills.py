@@ -111,6 +111,21 @@ def collect_evidence(db: Session) -> dict[str, list[dict]]:
     return found
 
 
+def importance(skill: TechSkill) -> int:
+    """How much the owner's work leans on a skill: each project that uses it
+    counts once, a job/internship twice, a skill he added by hand once."""
+    refs = {}
+    for e in skill.evidence or []:
+        refs[(e.get("kind"), e.get("ref"))] = 2 if e.get("kind") == "experience" else 1
+    return sum(refs.values()) + (1 if skill.manual else 0)
+
+
+def by_importance(skills: list[TechSkill]) -> list[TechSkill]:
+    """General skills first, then by how much they're used; ties keep the
+    owner's order."""
+    return sorted(skills, key=lambda s: (s.tier != "core", -importance(s), s.sort_order or 0, s.id or 0))
+
+
 def rebuild_skills(db: Session) -> list[TechSkill]:
     """Refresh code-found evidence; manual skills and the owner's hide/group
     choices are kept."""

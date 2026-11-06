@@ -6,6 +6,7 @@ CVs are NOT uploaded here - they live in the CVs tab (one CV entity serves both
 purposes: attached to outgoing applications AND ingested here as a profile
 source), so there's only ever one place to manage CV files."""
 import os
+import re
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
@@ -74,8 +75,13 @@ def item_title(item: ProfileItem) -> str:
 
 
 def open_questions(item: ProfileItem) -> list[str]:
-    answered = {f.get("question") for f in item.owner_facts or []}
-    return [q for q in (item.extracted or {}).get("open_questions") or [] if q not in answered]
+    """Questions the record couldn't answer, minus answered and skipped ones."""
+    done = {f.get("question") for f in item.owner_facts or []} | set((item.extracted or {}).get("skipped_questions") or [])
+    return [q for q in (item.extracted or {}).get("open_questions") or [] if q not in done]
+
+
+def _next_or(next_url: str, fallback: str) -> str:
+    return next_url if next_url.startswith("/profile") and "//" not in next_url else fallback
 
 
 def _aware(moment):
@@ -84,32 +90,31 @@ def _aware(moment):
     return moment if moment is None or moment.tzinfo else moment.replace(tzinfo=tz.utc)
 
 
-def next_steps(db: Session, profile: Profile | None, items: list[ProfileItem], pending_cvs: list[CV]) -> list[dict]:
-    """What the owner should do next on this page, most useful first."""
+def records_changed_since_update(profile: Profile | None, items: list[ProfileItem]) -> int:
+    """Analyzed records added or re-analyzed after the profile was last built."""
+    analyzed = [i for i in items if i.status == ProfileItemStatus.ANALYZED]
+    built_at = _aware(profile.updated_at) if profile and profile.summary else None
+    if built_at is None:
+        return len(analyzed)
+    return sum(
+        1 for i in analyzed
+        if (_aware(i.created_at) and _aware(i.created_at) > built_at)
+        or ((i.source_version or {}).get("analyzed_at", "") > built_at.isoformat())
+    )
+
+
+def needs_attention(items: list[ProfileItem], pending_cvs: list[CV]) -> list[dict]:
+    """Things that block a good profile: unread CVs, failed records, re-read
+    changes waiting for review."""
     steps = []
-    failed = [i for i in items if i.status == ProfileItemStatus.NEEDS_REVIEW]
     if pending_cvs:
         steps.append({"key": "ingest_cvs", "count": len(pending_cvs)})
+    failed = [i for i in items if i.status == ProfileItemStatus.NEEDS_REVIEW]
     if failed:
         steps.append({"key": "failed", "count": len(failed), "href": f"/profile/items/{failed[0].id}"})
     pending = [i for i in items if i.pending_update]
     if pending:
         steps.append({"key": "pending", "count": len(pending), "href": f"/profile/items/{pending[0].id}"})
-    questions = [i for i in items if i.status == ProfileItemStatus.ANALYZED and open_questions(i)]
-    if questions:
-        steps.append({"key": "questions", "count": len(questions), "href": f"/profile/items/{questions[0].id}"})
-    analyzed = [i for i in items if i.status == ProfileItemStatus.ANALYZED]
-    synthesized_at = _aware(profile.updated_at) if profile and profile.summary else None
-    newer = [
-        i for i in analyzed
-        if synthesized_at is None
-        or (_aware(i.created_at) and _aware(i.created_at) > synthesized_at)
-        or ((i.source_version or {}).get("analyzed_at", "") > synthesized_at.isoformat())
-    ]
-    if analyzed and (synthesized_at is None or newer):
-        steps.append({"key": "synthesize", "count": len(newer) if synthesized_at else len(analyzed), "action": "/profile/synthesize"})
-    elif analyzed and profile and not profile.writeup:
-        steps.append({"key": "writeup", "count": 0, "action": "/profile/writeup/generate"})
     return steps
 
 
@@ -140,7 +145,14 @@ def profile_home(
             "ledger": ledger_summary(db),
             "pending_cvs": pending_cvs,
             "has_any_cv": bool(cvs),
-            "steps": next_steps(db, profile, items, pending_cvs),
+            "steps": needs_attention(items, pending_cvs),
+            "changed": records_changed_since_update(profile, items),
+            "questions": [
+                (item, [(index, q) for index, q in enumerate((item.extracted or {}).get("open_questions") or []) if q in open_questions(item)])
+                for item in items
+                if item.status == ProfileItemStatus.ANALYZED and open_questions(item)
+            ],
+            "error": request.query_params.get("error", ""),
             "item_title": item_title,
             "open_questions": open_questions,
             "ingest_summary": {"done": ingested, "skipped": skipped, "updated": updated,
@@ -249,7 +261,11 @@ async def answer_item_questions(request: Request, item_id: int, db: Session = De
     questions = (item.extracted or {}).get("open_questions") or []
     facts = list(item.owner_facts or [])
     now = datetime.now(timezone.utc).isoformat()
+    skipped = list((item.extracted or {}).get("skipped_questions") or [])
     for index, question in enumerate(questions):
+        if form.get(f"skip_{index}"):
+            skipped.append(question)  # not applicable - stop asking, claim nothing
+            continue
         answer = str(form.get(f"answer_{index}", "")).strip()
         if answer:
             facts = [f for f in facts if f.get("question") != question]
@@ -258,8 +274,10 @@ async def answer_item_questions(request: Request, item_id: int, db: Session = De
     if extra:
         facts.append({"question": "", "answer": extra, "source": "owner", "at": now})
     item.owner_facts = facts
+    if skipped != list((item.extracted or {}).get("skipped_questions") or []):
+        item.extracted = {**(item.extracted or {}), "skipped_questions": sorted(set(skipped))}
     db.commit()
-    return RedirectResponse(url=f"/profile/items/{item_id}?saved=1", status_code=303)
+    return RedirectResponse(url=_next_or(str(form.get("next", "")), f"/profile/items/{item_id}?saved=1"), status_code=303)
 
 
 @router.post("/items/{item_id}/facts/{index}/delete")
@@ -460,6 +478,7 @@ def github_changes(request: Request, db: Session = Depends(get_db)):
 @router.post("/items/{item_id}/reanalyze")
 def reanalyze_item(
     item_id: int,
+    next: str = Form(""),
     db: Session = Depends(get_db),
     llm: LLMProvider = Depends(get_llm),
     draft_llm: LLMProvider = Depends(get_draft_llm),
@@ -468,7 +487,7 @@ def reanalyze_item(
     if item is None or item.source_type != "github_repo":
         raise NotFoundError(f"Repo record {item_id} not found")
     reanalyze_repo(db, llm, draft_llm, get_settings().github_token, item)
-    return RedirectResponse(url=f"/profile/items/{item_id}", status_code=303)
+    return RedirectResponse(url=_next_or(next, f"/profile/items/{item_id}"), status_code=303)
 
 
 @router.get("/github/reanalyze/step")
@@ -517,6 +536,56 @@ def skip_profile_item(item_id: int, db: Session = Depends(get_db)):
         item.status = ProfileItemStatus.SKIPPED
         db.commit()
     return RedirectResponse(url="/profile/github/changes", status_code=303)
+
+
+@router.post("/github/add-one")
+def github_add_one(repo: str = Form(...), db: Session = Depends(get_db)):
+    """Read just this repo into the profile (a new one, or one that changed):
+    nothing else is re-read. Accepts owner/name or a github.com URL."""
+    name = repo.strip().removeprefix("https://").removeprefix("http://").removeprefix("www.").removeprefix("github.com/")
+    name = "/".join(name.strip("/").split("/")[:2]).removesuffix(".git")
+    if name.count("/") != 1:
+        return RedirectResponse(url="/profile?error=repo#sources", status_code=303)
+    settings = _owner_settings(db)
+    if name in (settings.excluded_repos or []):  # asking for it by name restores it
+        settings.excluded_repos = [r for r in settings.excluded_repos if r != name]
+        db.commit()
+    return RedirectResponse(url=f"/profile/github/ingest/step?repos={name}&done=0&total=1", status_code=303)
+
+
+@router.post("/update-all")
+def update_all(
+    db: Session = Depends(get_db),
+    llm: LLMProvider = Depends(get_llm),
+    draft_llm: LLMProvider = Depends(get_draft_llm),
+):
+    """The one "update my profile" button: the short profile (summary, roles,
+    skills - what letters and fit checks read) and the long "about me"
+    document, both rebuilt from every analyzed record."""
+    synthesize_profile(db, llm)
+    generate_writeup(db, draft_llm)
+    return RedirectResponse(url="/profile#about", status_code=303)
+
+
+@router.post("/about")
+def save_about(
+    summary: str = Form(""),
+    target_roles: str = Form(""),
+    writeup: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    """One edit for the whole "about me": the short summary, target roles and
+    the long document. Skills are kept as they are."""
+    profile = db.query(Profile).first()
+    if profile is None:
+        profile = Profile(skills=[])
+        db.add(profile)
+    profile.summary = summary.strip()
+    profile.target_roles = [r.strip() for r in re.split(r"[,\n]+", target_roles) if r.strip()]
+    profile.writeup = writeup.strip()
+    profile.writeup_unknown_tags = unknown_tags(profile.writeup, {item.id for item in candidate_items(db)})
+    db.commit()
+    return RedirectResponse(url="/profile#about", status_code=303)
 
 
 @router.post("/synthesize")
@@ -587,7 +656,7 @@ def writeup_save(writeup: str = Form(""), db: Session = Depends(get_db)):
 
 
 @router.post("/cover-letter-template")
-def update_cover_letter_template(cover_letter_template: str = Form(""), db: Session = Depends(get_db)):
+def update_cover_letter_template(cover_letter_template: str = Form(""), next: str = Form(""), db: Session = Depends(get_db)):
     """Separate from /update so saving the template never clobbers the
     summary/roles/skills fields with the empty defaults of a form that doesn't
     include them."""
@@ -597,4 +666,4 @@ def update_cover_letter_template(cover_letter_template: str = Form(""), db: Sess
         db.add(profile)
     profile.cover_letter_template = cover_letter_template.strip()
     db.commit()
-    return RedirectResponse(url="/profile", status_code=303)
+    return RedirectResponse(url="/preferences#letter-template" if next == "/preferences" else "/profile", status_code=303)

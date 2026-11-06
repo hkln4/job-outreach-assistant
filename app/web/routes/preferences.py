@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.applications.signature import IDENTITY_FIELDS, detected_from_cvs, owner_identity, signature_block
 from app.db import get_db
-from app.models import EMAIL_LANGUAGES, OwnerSettings, Preference, PreferenceType, StyleExample, StyleNote, get_email_language
+from app.models import EMAIL_LANGUAGES, OwnerSettings, Preference, PreferenceType, Profile, StyleExample, StyleNote, get_email_language
 from app.web.render import render
 
 router = APIRouter(prefix="/preferences", tags=["preferences"])
@@ -32,6 +32,7 @@ def list_preferences(request: Request, saved: int = 0, db: Session = Depends(get
             "identity_fields": IDENTITY_FIELDS,
             "saved": bool(saved),
             "notes": db.query(StyleNote).order_by(StyleNote.id).all(),
+            "cover_letter_template": (db.query(Profile).first() or Profile()).cover_letter_template or "",
             "examples": db.query(StyleExample).order_by(StyleExample.id.desc()).all(),
         },
     )

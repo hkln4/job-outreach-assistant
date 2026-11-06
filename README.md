@@ -141,8 +141,12 @@ All of v1 plus roadmap phases 0-7 are built (`docs/ROADMAP.md`). By area:
   `[at]`), forms and ATS boards in the raw HTML, and reuses the previous AI
   summary when the site text hasn't changed.
 - **Discover** (`/discovery`): technopark directories, CSV/XLSX lists, JSON
-  endpoints of JavaScript-only directories and GitHub organizations; a no-LLM
-  liveness check skips dead sites before any screening call. See
+  endpoints of JavaScript-only directories and GitHub organizations. Four
+  steps on one page: bring companies in, free checks (is the site alive, and a
+  sector filter by code on the directory's sector field and the homepage text
+  - your sector words and the ones to avoid), AI reading only for the ones
+  that passed, then decide. Dead and off-sector candidates can be rejected in
+  one click. See
   [Discover companies](#discover-companies).
 - **Job postings** (`/postings`): paste a URL or text (LinkedIn links through
   the LinkedIn MCP rule below), read ATS boards (Greenhouse, Lever, Ashby,
@@ -189,10 +193,17 @@ All of v1 plus roadmap phases 0-7 are built (`docs/ROADMAP.md`). By area:
 - **Outcomes and cost**: `/funnel` (reply and interview rates, time to reply,
   by source / channel / CV / language / angle, plus a cost line linking to
   every LLM call). Writing-style rules and examples live under **Settings**.
-- **Profile**: deleted repos stay hidden from the GitHub list (restorable there);
-  re-importing skips repos that haven't changed and re-analyzes changed ones as a
-  reviewable diff. The page lists what to do next. Deletes and row actions on
-  every page happen in place.
+- **Profile**: one "about me" built from your sources by one "Update my
+  profile" button (the short summary and target roles that letters read, plus
+  the long document), edited in one place. Questions the repos can't answer
+  (your role, team size, the real result) sit on the page with the reason they
+  matter; answers become facts, skipped ones are never asked again. One repo
+  can be read or re-read on its own; deleted repos stay hidden from the GitHub
+  list (restorable there). Deletes and row actions on every page happen in
+  place.
+- **Skills on CVs** go in order of importance: general skills first, then by
+  how much your projects and jobs use them; specific tools only when a posting
+  asks for them.
 - **Layout**: the home page is one "Today" list, most urgent first (drafts to
   review, no reply past the threshold, new postings that fit, companies ready
   for a letter, then research and dealbreaker decisions), with one button per
@@ -435,5 +446,5 @@ app/
   web/                       routes + Jinja2 templates + i18n + a little JS
 scripts/                     DB init, Gmail smoke tests, hallucination eval, demo recorder
 docs/ROADMAP.md              phase specs and status
-tests/                       pytest suite (378 tests)
+tests/                       pytest suite (384 tests)
 ```

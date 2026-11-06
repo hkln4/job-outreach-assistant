@@ -10,7 +10,7 @@
   </div>
   {% if consistency %}
   <div class="warning"><strong>{{ t("cvb.consistency_title") }}</strong>
-    <ul>{% for c in consistency %}<li><strong>{{ c.project }}</strong> · {{ c.metric }}: {% for source, values in c.values.items() %}{{ t("cvb.src." ~ source) }} {{ values | join(", ") }}{% if not loop.last %} / {% endif %}{% endfor %}</li>{% endfor %}</ul>
+    <ul>{% for c in consistency %}<li><strong>{{ c.project }}</strong> · {{ c.metric }}: {% for source, values in c["values"].items() %}{{ t("cvb.src." ~ source) }} {{ values | join(", ") }}{% if not loop.last %} / {% endif %}{% endfor %}</li>{% endfor %}</ul>
   </div>
   {% endif %}
 
@@ -40,7 +40,7 @@
             {% for s, status in core %}
               <form method="post" action="/cv-builder/skills" data-inline="swap" class="chip-form">
                 <input type="hidden" name="skill_id" value="{{ s.id }}">
-                <span class="chip {{ 'chip-warn' if status != 'ok' }}" title="{% for e in s.evidence %}{{ e.kind }}: {{ e.ref }}&#10;{% endfor %}{% if status != 'ok' %}{{ t('cvb.evidence.' ~ status) }}{% endif %}">{{ s.name }}
+                <span class="chip {{ 'chip-warn' if status != 'ok' }}" title="{{ t('cvb.used_in') }} {{ importance(s) }}&#10;{% for e in s.evidence %}{{ e.kind }}: {{ e.ref }}&#10;{% endfor %}{% if status != 'ok' %}{{ t('cvb.evidence.' ~ status) }}{% endif %}">{{ s.name }}
                   <button type="submit" name="action" value="tier" class="link-button" >{{ t('cvb.make_specific_short') }}</button>
                   <button type="submit" name="action" value="toggle" class="link-button" >{{ t('cvb.hide') }}</button></span>
               </form>

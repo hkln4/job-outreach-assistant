@@ -217,3 +217,104 @@ def test_found_postings_wait_in_the_inbox_until_kept():
         db.query(JobPosting).filter(JobPosting.title.like("Simp Inbox %")).delete(synchronize_session=False)
         db.commit()
         db.close()
+
+
+def test_cv_builder_page_renders_a_consistency_warning(monkeypatch):
+    """A dict with a "values" key: the template must not reach dict.values."""
+    import app.web.routes.cv_builder as cvb
+
+    monkeypatch.setattr(cvb, "check_consistency", lambda db: [{"project": "echo-ef", "metric": "dice", "values": {"record": [0.93], "cv": [0.91]}}])
+    page = TestClient(app).get("/cv-builder")
+    assert page.status_code == 200 and "echo-ef" in page.text and "0.91" in page.text
+
+
+def test_sector_filter_reads_the_directory_and_homepage_without_ai():
+    from app.discovery.sector import DEFAULT_SECTOR_FILTER, sector_check
+
+    assert sector_check(DEFAULT_SECTOR_FILTER, "Bilişim", "Yapay zeka ve görüntü işleme çözümleri")["result"] == "match"
+    assert sector_check(DEFAULT_SECTOR_FILTER, "", "İnşaat ve taahhüt hizmetleri")["result"] == "off"
+    assert sector_check(DEFAULT_SECTOR_FILTER, "", "Kurumsal web sitemize hoş geldiniz")["result"] == "off"  # read, no target word
+    assert sector_check(DEFAULT_SECTOR_FILTER, "", "")["result"] == "unclear"
+    assert sector_check({"include": ["robotik"], "exclude": []}, "", "Robotik kol ve otonom araç")["result"] == "match"
+
+
+def test_rejecting_off_sector_and_dead_candidates_in_one_click():
+    from app.models import CandidateStatus, CompanyCandidate, DiscoverySource
+
+    init_db()
+    db = SessionLocal()
+    try:
+        src = DiscoverySource(name="Simp dir", url="https://dir.example", kind="html")
+        db.add(src)
+        db.commit()
+        rows = [
+            CompanyCandidate(source_id=src.id, name="Simp AI", website_url="https://simp-ai-unique.example", status=CandidateStatus.PENDING,
+                             liveness={"status": "ALIVE", "text": "Yapay zeka çözümleri"}),
+            CompanyCandidate(source_id=src.id, name="Simp Build", website_url="https://simp-build-unique.example", status=CandidateStatus.PENDING,
+                             liveness={"status": "ALIVE", "text": "İnşaat taahhüt"}),
+            CompanyCandidate(source_id=src.id, name="Simp Dead", website_url="https://simp-dead-unique.example", status=CandidateStatus.PENDING,
+                             liveness={"status": "DEAD"}),
+        ]
+        db.add_all(rows)
+        db.commit()
+        client = TestClient(app)
+        client.post("/discovery/reject-filtered", data={"which": "off"}, follow_redirects=False)
+        client.post("/discovery/reject-filtered", data={"which": "dead"}, follow_redirects=False)
+        db.expire_all()
+        assert [r.status for r in rows] == [CandidateStatus.PENDING, CandidateStatus.REJECTED, CandidateStatus.REJECTED]
+    finally:
+        db.rollback()
+        db.query(CompanyCandidate).filter(CompanyCandidate.name.like("Simp %")).delete(synchronize_session=False)
+        db.query(DiscoverySource).filter(DiscoverySource.name == "Simp dir").delete(synchronize_session=False)
+        db.commit()
+        db.close()
+
+
+def test_general_and_most_used_skills_come_first():
+    from app.cv_builder.skills import by_importance
+    from app.models import TechSkill
+
+    python = TechSkill(id=1, name="Python", tier="core", evidence=[{"kind": "github_repo", "ref": "a"}, {"kind": "experience", "ref": "job"}])
+    sql = TechSkill(id=2, name="SQL", tier="core", evidence=[{"kind": "github_repo", "ref": "a"}])
+    studio = TechSkill(id=3, name="Google AI Studio", tier="specific", evidence=[{"kind": "github_repo", "ref": "a"}, {"kind": "github_repo", "ref": "b"}, {"kind": "github_repo", "ref": "c"}])
+    assert [s.name for s in by_importance([studio, sql, python])] == ["Python", "SQL", "Google AI Studio"]
+
+
+def test_profile_about_is_one_edit_and_one_repo_can_be_read_alone():
+    from app.models import Profile
+
+    init_db()
+    db = SessionLocal()
+    try:
+        client = TestClient(app)
+        client.post("/profile/about", data={"summary": "Simp summary.", "target_roles": "ML Engineer, CV Engineer", "writeup": "# Summary\nSimp."})
+        db.expire_all()
+        profile = db.query(Profile).first()
+        assert profile.summary == "Simp summary." and profile.target_roles == ["ML Engineer", "CV Engineer"] and profile.writeup.startswith("# Summary")
+        r = client.post("/profile/github/add-one", data={"repo": "https://github.com/me/echo-ef.git"}, follow_redirects=False)
+        assert r.headers["location"] == "/profile/github/ingest/step?repos=me/echo-ef&done=0&total=1"
+        r = client.post("/profile/github/add-one", data={"repo": "nonsense"}, follow_redirects=False)
+        assert "error=repo" in r.headers["location"]
+    finally:
+        db.close()
+
+
+def test_a_skipped_question_is_not_asked_again_and_claims_nothing():
+    from app.web.routes.profile import open_questions
+
+    init_db()
+    db = SessionLocal()
+    try:
+        item = ProfileItem(source_type="github_repo", source_ref="simp/q", status=ProfileItemStatus.ANALYZED,
+                           extracted={"open_questions": ["Team or solo?", "Dataset size?"]})
+        db.add(item)
+        db.commit()
+        r = TestClient(app).post(f"/profile/items/{item.id}/answers", data={"next": "/profile", "skip_0": "1", "answer_1": "12k images"}, follow_redirects=False)
+        assert r.headers["location"] == "/profile"
+        db.expire_all()
+        assert open_questions(item) == []
+        assert item.owner_facts == [{"question": "Dataset size?", "answer": "12k images", "source": "owner", "at": item.owner_facts[0]["at"]}]
+    finally:
+        db.query(ProfileItem).filter(ProfileItem.source_ref == "simp/q").delete(synchronize_session=False)
+        db.commit()
+        db.close()

@@ -3,15 +3,17 @@
 {% block content %}
   <div class="dash-header">
     <h1>{{ t("profile.title") }}</h1>
-    <div class="row-actions">
-      <a class="button-link secondary" href="/profile/github">{{ t("profile.button.review_github") }}</a>
-      <a class="button-link secondary" href="/profile/github/changes">{{ t("profile.check_changes") }}</a>
-    </div>
+    <form method="post" action="/profile/update-all" data-loading-text="{{ t('loading.writing') }}">
+      <button type="submit" {{ "disabled" if not items_count }}>{{ t("profile.update_all") }}{% if changed and profile and profile.summary %} ({{ changed }} {{ t("profile.changed_records") }}){% endif %}</button>
+    </form>
   </div>
+  <p class="hint">{{ t("profile.flow_hint") }}</p>
 
+  {% if error == "repo" %}<div class="warning"><p>{{ t("profile.repo_format") }}</p></div>{% endif %}
   {% if ingest_summary %}
-  <div class="card">
-    <p>{{ t("profile.ingest_done") }} {{ ingest_summary.done }} · {{ t("ingest.skipped") }} {{ ingest_summary.skipped }} · {{ t("ingest.updated") }} {{ ingest_summary.updated }}{% if ingest_summary.failed %} · <strong>{{ t("ingest.failed") }} {{ ingest_summary.failed | length }}</strong>{% endif %}</p>
+  <div class="notice">
+    <p>{{ t("profile.ingest_done") }} {{ ingest_summary.done }}, {{ t("ingest.skipped") }} {{ ingest_summary.skipped }}, {{ t("ingest.updated") }} {{ ingest_summary.updated }}{% if ingest_summary.failed %}, <strong>{{ t("ingest.failed") }} {{ ingest_summary.failed | length }}</strong>{% endif %}.
+      {% if ingest_summary.done or ingest_summary.updated %}{{ t("profile.now_update") }}{% endif %}</p>
     {% for name, item in ingest_summary.failed %}
       <div class="row"><span class="row-main">{{ name }}{% if item and item.extracted.get("parse_error") %} <span class="row-meta">{{ item.extracted.get("parse_error")[:160] }}</span>{% endif %}</span>
         {% if item %}<form method="post" action="/profile/items/{{ item.id }}/retry" data-loading-text="{{ t('loading.analyzing') }}"><button type="submit" class="secondary">{{ t("common.retry") }}</button></form>{% endif %}</div>
@@ -20,135 +22,135 @@
   {% endif %}
 
   {% if steps or proposed_facts %}
-  <div class="card">
-    <h2>{{ t("profile.next_steps") }}</h2>
-    <ul class="next-steps">
-      {% for step in steps %}
-        <li>
-          {% if step.key == "ingest_cvs" %}
-            {{ t("profile.step.ingest_cvs") }} ({{ step.count }}):
-            {% for cv in pending_cvs %}<form method="post" action="/profile/cv/ingest/{{ cv.id }}" style="display:inline" data-loading-text="{{ t('loading.ingesting') }}"><button type="submit" class="secondary">{{ cv.name }}</button></form> {% endfor %}
-          {% elif step.action %}
-            <form method="post" action="{{ step.action }}" style="display:inline" data-loading-text="{{ t('loading.writing') }}">{{ t("profile.step." ~ step.key) }}{% if step.count %} ({{ step.count }}){% endif %} <button type="submit">{{ t("profile.step." ~ step.key ~ "_button") }}</button></form>
-          {% else %}
-            <a href="{{ step.href }}">{{ t("profile.step." ~ step.key) }} ({{ step.count }}) →</a>
-          {% endif %}
-        </li>
-      {% endfor %}
-    </ul>
-    {% if proposed_facts %}
-      <div class="rows-title" id="facts">{{ t("facts.title") }}</div>
-      {% for fact in proposed_facts %}
-        <div class="row" data-row id="fact-{{ fact.id }}">
-          <form method="post" action="/profile/facts/{{ fact.id }}" class="inline-form row-main" data-inline="remove">
-            <input type="text" name="text" value="{{ fact.text }}">
-            <span class="row-meta">"{{ fact.quote }}"</span>
-            <button type="submit" name="action" value="approve">{{ t("facts.approve") }}</button>
-            <button type="submit" name="action" value="reject" class="secondary">{{ t("facts.reject") }}</button>
+  <div class="warning">
+    {% for step in steps %}
+      <p>{% if step.key == "ingest_cvs" %}{{ t("profile.step.ingest_cvs") }}:
+          {% for cv in pending_cvs %}<form method="post" action="/profile/cv/ingest/{{ cv.id }}" style="display:inline" data-loading-text="{{ t('loading.ingesting') }}"><button type="submit" class="secondary">{{ cv.name }}</button></form> {% endfor %}
+        {% else %}<a href="{{ step.href }}">{{ t("profile.step." ~ step.key) }} ({{ step.count }})</a>{% endif %}</p>
+    {% endfor %}
+    {% for fact in proposed_facts %}
+      <div class="row" data-row id="fact-{{ fact.id }}">
+        <form method="post" action="/profile/facts/{{ fact.id }}" class="toolbar row-main" data-inline="remove">
+          <span>{{ t("facts.title") }}:</span>
+          <input type="text" name="text" value="{{ fact.text }}" aria-label="{{ t('facts.title') }}">
+          <button type="submit" name="action" value="approve" class="secondary">{{ t("facts.approve") }}</button>
+          <button type="submit" name="action" value="reject" class="link-button">{{ t("facts.reject") }}</button>
+        </form>
+      </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  <section class="card" id="about">
+    <div class="dash-header">
+      <h2>{{ t("profile.about_title") }}</h2>
+      {% if profile and (profile.summary or profile.writeup) %}<button type="button" class="secondary" onclick="document.getElementById('about-edit').open = true; document.getElementById('about-view').hidden = true;">{{ t("common.edit") }}</button>{% endif %}
+    </div>
+    {% if profile and (profile.summary or profile.writeup) %}
+      <div id="about-view">
+        {% if profile.target_roles %}<p class="meta-line"><span>{{ t("profile.target_roles_label") }}:</span>{% for role in profile.target_roles %}<span class="chip">{{ role }}</span>{% endfor %}</p>{% endif %}
+        {% if profile.summary and not profile.writeup %}<p>{{ profile.summary }}</p>{% endif %}
+        {% if profile.writeup_unknown_tags %}<p class="notice">{{ t("profile.writeup_unknown_tags") }} {% for tag in profile.writeup_unknown_tags %}[E{{ tag }}] {% endfor %}</p>{% endif %}
+        {% if profile.writeup %}<div class="doc">{{ markdown(profile.writeup) }}</div>{% endif %}
+      </div>
+      <details id="about-edit" class="plain">
+        <summary hidden></summary>
+        <form method="post" action="/profile/about" class="stack">
+          <label>{{ t("profile.field.target_roles_inline") }}<input type="text" name="target_roles" value="{{ profile.target_roles | join(', ') }}"></label>
+          <label>{{ t("profile.field.summary_short") }}<textarea name="summary" rows="3">{{ profile.summary }}</textarea></label>
+          <label>{{ t("profile.field.writeup") }}<textarea name="writeup" rows="24">{{ profile.writeup }}</textarea></label>
+          <div class="toolbar"><button type="submit">{{ t("common.save") }}</button>
+            <button type="button" class="link-button" onclick="document.getElementById('about-edit').open = false; document.getElementById('about-view').hidden = false;">{{ t("common.cancel") }}</button></div>
+        </form>
+      </details>
+    {% else %}
+      <p class="empty-state">{{ t("profile.about_empty") }}</p>
+    {% endif %}
+  </section>
+
+  {% if questions %}
+  <section class="card" id="questions" data-row>
+    <h2>{{ t("profile.questions_title") }} ({{ questions | map(attribute="1") | map("length") | sum }})</h2>
+    <p class="hint">{{ t("profile.questions_hint") }}</p>
+    {% for item, qs in questions %}
+      <form method="post" action="/profile/items/{{ item.id }}/answers" class="question-group" data-inline="swap">
+        <input type="hidden" name="next" value="/profile">
+        <div class="rows-title">{{ item_title(item) }}</div>
+        {% for index, q in qs %}
+          <div class="question">
+            <label>{{ q }}<input type="text" name="answer_{{ index }}"></label>
+            <button type="submit" name="skip_{{ index }}" value="1" class="link-button" title="{{ t('profile.skip_hint') }}">{{ t("profile.skip") }}</button>
+          </div>
+        {% endfor %}
+        <button type="submit" class="secondary">{{ t("profile.save_answers") }}</button>
+      </form>
+    {% endfor %}
+  </section>
+  {% endif %}
+
+  <section class="card" id="sources">
+    <h2>{{ t("profile.sources_title") }}</h2>
+    <p class="hint">{{ t("profile.sources_hint") }}</p>
+    {% for key, group_items in groups %}
+      <div class="rows-title">{{ t("profile.group." ~ key) }} ({{ group_items | length }})</div>
+      {% if key == "projects" %}
+      <div class="toolbar">
+        <form method="post" action="/profile/github/add-one" class="toolbar">
+          <input type="text" name="repo" required placeholder="owner/repo" aria-label="{{ t('profile.add_one_repo') }}">
+          <button type="submit" class="secondary">{{ t("profile.add_one_repo") }}</button>
+        </form>
+        <a class="button-link secondary" href="/profile/github">{{ t("profile.button.review_github") }}</a>
+        <a class="button-link secondary" href="/profile/github/changes">{{ t("profile.check_changes") }}</a>
+      </div>
+      {% endif %}
+      <div class="rows">
+        {% for item in group_items %}
+        {% set qs = open_questions(item) %}
+        <div class="row" data-row id="item-{{ item.id }}">
+          <span class="row-main">
+            <a href="/profile/items/{{ item.id }}"><strong>{{ item_title(item) }}</strong></a>
+            {% if item.extracted.get("parse_error") %}<span class="badge badge-hard">{{ t("profile.items.failed_prefix") }}</span>
+            {% else %}<span class="row-meta">{{ (item.extracted.get("one_liner") or (item.extracted.get("purpose", "") if item.source_type != "owner" else ""))[:110] }}</span>{% endif %}
+            {% if qs %}<a href="#questions" class="badge badge-soft">{{ qs | length }} {{ t("profile.badge.questions") }}</a>{% endif %}
+            {% if item.pending_update %}<a href="/profile/items/{{ item.id }}" class="badge badge-soft">{{ t("profile_item.has_pending") }}</a>{% endif %}
+            {% if item.status.value == "skipped" %}<span class="badge">{{ t("profile.badge.skipped") }}</span>{% endif %}
+          </span>
+          <span class="row-actions">
+            {% if item.extracted.get("parse_error") %}<form method="post" action="/profile/items/{{ item.id }}/retry" data-loading-text="{{ t('loading.analyzing') }}"><button type="submit" class="secondary">{{ t("common.retry") }}</button></form>
+            {% elif item.source_type == "github_repo" %}<form method="post" action="/profile/items/{{ item.id }}/reanalyze" data-loading-text="{{ t('loading.analyzing') }}" title="{{ t('profile.reread_hint') }}"><input type="hidden" name="next" value="/profile#item-{{ item.id }}"><button type="submit" class="secondary">{{ t("profile.reread") }}</button></form>{% endif %}
+            <form method="post" action="/profile/items/{{ item.id }}/delete" data-inline="remove"
+                  onsubmit="return confirm('{{ t('profile.delete_confirm_repo') if item.source_type == 'github_repo' else t('profile.delete_confirm') }}');">
+              <button type="submit" class="link-button danger-text">{{ t("common.delete") }}</button>
+            </form>
+          </span>
+        </div>
+        {% else %}<p class="hint">{{ t("profile.group_empty." ~ key) }}</p>
+        {% endfor %}
+      </div>
+    {% endfor %}
+
+    <details class="section">
+      <summary><strong>{{ t("profile.add_sources") }}</strong></summary>
+      <div class="grid-2">
+        <div class="stack">
+          <div class="rows-title">{{ t("profile.cv_section_title") }}</div>
+          {% if pending_cvs %}{% for cv in pending_cvs %}<form method="post" action="/profile/cv/ingest/{{ cv.id }}" data-loading-text="{{ t('loading.ingesting') }}"><button type="submit" class="secondary">{{ cv.name }}</button></form>{% endfor %}
+          {% else %}<p class="hint">{{ t("profile.all_cvs_ingested") }} <a href="/cvs">{{ t("cvb.cv_files") }}</a></p>{% endif %}
+          <div class="rows-title">{{ t("profile.linkedin_title") }}</div>
+          <form method="post" action="/profile/linkedin/upload" enctype="multipart/form-data" data-loading-text="{{ t('loading.ingesting') }}" class="toolbar">
+            <input type="file" name="file" accept=".pdf" required aria-label="{{ t('profile.linkedin_title') }}">
+            <button type="submit" class="secondary">{{ t("profile.button.ingest_linkedin") }}</button>
           </form>
         </div>
-      {% endfor %}
-    {% endif %}
-  </div>
-  {% endif %}
-
-  {% if profile and profile.summary %}
-  <div class="card">
-    <p>{{ profile.summary }}</p>
-    {% if profile.target_roles %}<div class="chip-list">{% for role in profile.target_roles %}<span class="chip">{{ role }}</span>{% endfor %}</div>{% endif %}
-    {% if profile.skills %}<div class="chip-list">{% for s in profile.skills %}<span class="chip chip-muted" title="{{ s.evidence_source }}">{{ s.skill }}</span>{% endfor %}</div>{% endif %}
-    <details>
-      <summary class="hint">{{ t("profile.edit_summary") }}</summary>
-      <form method="post" action="/profile/update" data-loading-text="{{ t('loading.saving') }}">
-        <label>{{ t("profile.field.summary") }}<textarea name="summary" rows="4">{{ profile.summary }}</textarea></label>
-        <label>{{ t("profile.field.target_roles") }}<textarea name="target_roles" rows="3">{{ profile.target_roles | join("\n") }}</textarea></label>
-        <label>{{ t("profile.field.skills") }}<textarea name="skills" rows="6">{% for s in profile.skills %}{{ s.skill }} | {{ s.evidence_source }}
-{% endfor %}</textarea></label>
-        <button type="submit">{{ t("profile.button.save") }}</button>
-      </form>
-    </details>
-  </div>
-  {% endif %}
-
-  {% for key, group_items in groups if group_items %}
-    <div class="rows-title">{{ t("profile.group." ~ key) }} ({{ group_items | length }})</div>
-    <div class="rows">
-      {% for item in group_items %}
-      {% set qs = open_questions(item) %}
-      <div class="row" data-row id="item-{{ item.id }}">
-        <span class="row-main">
-          <a href="/profile/items/{{ item.id }}"><strong>{{ item_title(item) }}</strong></a>
-          {% if item.extracted.get("parse_error") %}<span class="badge badge-hard">{{ t("profile.items.failed_prefix") }}</span>
-          {% else %}<span class="row-meta">{{ (item.extracted.get("one_liner") or (item.extracted.get("purpose", "") if item.source_type != "owner" else ""))[:120] }}</span>{% endif %}
-          {% if qs %}<span class="badge badge-soft">{{ qs | length }} {{ t("profile.badge.questions") }}</span>{% endif %}
-          {% if item.pending_update %}<span class="badge badge-soft">{{ t("profile_item.has_pending") }}</span>{% endif %}
-          {% if item.status.value == "skipped" %}<span class="badge">{{ t("profile.badge.skipped") }}</span>{% endif %}
-        </span>
-        <span class="row-actions">
-          {% if item.extracted.get("parse_error") %}<form method="post" action="/profile/items/{{ item.id }}/retry" data-loading-text="{{ t('loading.analyzing') }}"><button type="submit" class="secondary">{{ t("common.retry") }}</button></form>{% endif %}
-          <form method="post" action="/profile/items/{{ item.id }}/delete" data-inline="remove"
-                onsubmit="return confirm('{{ t('profile.delete_confirm_repo') if item.source_type == 'github_repo' else t('profile.delete_confirm') }}');">
-            <button type="submit" class="link-button">{{ t('common.delete') }}</button>
+        <div class="stack">
+          <div class="rows-title">{{ t("profile.sites_title") }}</div>
+          <form method="post" action="/profile/sites/add" data-loading-text="{{ t('loading.ingesting') }}" class="stack">
+            <label>{{ t("profile.site_url") }}<input type="url" name="url" required></label>
+            <label class="inline"><input type="checkbox" name="follow_subpages" value="1" checked> {{ t("profile.follow_subpages") }}</label>
+            <button type="submit" class="secondary">{{ t("profile.button.ingest_site") }}</button>
           </form>
-        </span>
+        </div>
       </div>
-      {% endfor %}
-    </div>
-  {% endfor %}
-  {% if not items_count %}<p class="empty-state">{{ t("profile.empty") }}</p>{% endif %}
-
-  <details class="section card" {{ "open" if not items_count }}>
-    <summary><strong>{{ t("profile.add_sources") }}</strong> <span class="hint">{% for source_type, counts in ledger.items() %}{{ source_type }} {{ counts.analyzed }}/{{ counts.total }}{% if not loop.last %} · {% endif %}{% endfor %}</span></summary>
-    <p class="hint">{{ t("profile.what_is_ingest") }}</p>
-    <div class="grid-2">
-      <div>
-        <div class="rows-title">{{ t("profile.cv_section_title") }}</div>
-        {% if pending_cvs %}{% for cv in pending_cvs %}<form method="post" action="/profile/cv/ingest/{{ cv.id }}" data-loading-text="{{ t('loading.ingesting') }}" style="display:inline"><button type="submit" class="secondary">{{ cv.name }}</button></form> {% endfor %}
-        {% else %}<p class="hint">{{ t("profile.all_cvs_ingested") }} <a href="/cvs">{{ t("cvb.cv_files") }}</a></p>{% endif %}
-        <div class="rows-title">{{ t("profile.linkedin_title") }}</div>
-        <form method="post" action="/profile/linkedin/upload" enctype="multipart/form-data" data-loading-text="{{ t('loading.ingesting') }}" class="inline-form">
-          <input type="file" name="file" accept=".pdf" required>
-          <button type="submit" class="secondary">{{ t("profile.button.ingest_linkedin") }}</button>
-        </form>
-      </div>
-      <div>
-        <div class="rows-title">{{ t("profile.sites_title") }}</div>
-        <form method="post" action="/profile/sites/add" data-loading-text="{{ t('loading.ingesting') }}" class="inline-form">
-          <input type="url" name="url" placeholder="https://yoursite.com" required>
-          <label class="inline"><input type="checkbox" name="follow_subpages" value="1" checked> {{ t("profile.follow_subpages") }}</label>
-          <button type="submit" class="secondary">{{ t("profile.button.ingest_site") }}</button>
-        </form>
-        <div class="rows-title">GitHub</div>
-        <a class="button-link secondary" href="/profile/github">{{ t("profile.button.review_github") }}</a>
-      </div>
-    </div>
-  </details>
-
-  <details class="section card" id="writeup">
-    <summary><strong>{{ t("profile.writeup_title") }}</strong> <span class="hint">{{ t("profile.writeup_short") }}</span></summary>
-    {% if profile and profile.writeup_unknown_tags %}<div class="warning">{{ t("profile.writeup_unknown_tags") }} {% for tag in profile.writeup_unknown_tags %}[E{{ tag }}] {% endfor %}</div>{% endif %}
-    {% if profile and profile.writeup %}
-      <form method="post" action="/profile/writeup">
-        <textarea name="writeup" rows="20">{{ profile.writeup }}</textarea>
-        <button type="submit">{{ t("common.save") }}</button>
-      </form>
-    {% endif %}
-    <form method="post" action="/profile/writeup/generate" data-loading-text="{{ t('loading.writing') }}"
-          {% if profile and profile.writeup %}onsubmit="return confirm('{{ t('profile.writeup_regenerate_confirm') }}');"{% endif %}>
-      <button type="submit" class="secondary">{{ t("profile.writeup_regenerate") if profile and profile.writeup else t("profile.writeup_generate") }}</button>
-    </form>
-    <form method="post" action="/profile/synthesize" data-loading-text="{{ t('loading.synthesizing') }}" class="section">
-      <span class="hint">{{ t("profile.synthesize_hint") }}</span>
-      <button type="submit" class="secondary">{{ t("profile.button.synthesize") }}</button>
-    </form>
-  </details>
-
-  <details class="section card">
-    <summary><strong>{{ t("profile.cover_letter_template_title") }}</strong></summary>
-    <p class="hint">{{ t("profile.cover_letter_template_hint") }}</p>
-    <form method="post" action="/profile/cover-letter-template" data-loading-text="{{ t('loading.saving') }}">
-      <textarea name="cover_letter_template" rows="8" placeholder="{{ t('profile.cover_letter_template_placeholder') }}">{{ profile.cover_letter_template if profile else "" }}</textarea>
-      <button type="submit">{{ t("common.save") }}</button>
-    </form>
-  </details>
+    </details>
+  </section>
 {% endblock %}

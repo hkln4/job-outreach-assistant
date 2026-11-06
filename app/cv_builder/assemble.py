@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 
 from app.applications.grounding import technologies_in
 from app.applications.synonyms import ROLE_CONCEPTS, concepts_in, fold, role_type_for, tokens
-from app.cv_builder.skills import GROUPS, evidence_status, selected_project_item_ids
+from app.cv_builder.skills import GROUPS, by_importance, evidence_status, selected_project_item_ids
 from app.models import CV, CVProject, JobPosting, OwnerSettings, ProfileItem, TechSkill
 
 MAX_PROJECTS = 3
@@ -89,10 +89,10 @@ def assemble(db: Session, posting: JobPosting | None = None, company=None, certi
 
     skills: dict[str, list[str]] = {}
     for group in GROUPS:
-        candidates = [
-            s for s in db.query(TechSkill).filter(TechSkill.group == group, TechSkill.hidden.is_(False)).order_by(TechSkill.sort_order, TechSkill.id).all()
+        candidates = by_importance([
+            s for s in db.query(TechSkill).filter(TechSkill.group == group, TechSkill.hidden.is_(False)).all()
             if evidence_status(s, selected_ids) == "ok" or s.manual
-        ]
+        ])
         matched = [s.name for s in candidates if _matches(s.name, keywords)]
         # general skills always; a niche tool only when the posting asks for it
         rest = [s.name for s in candidates if s.name not in matched and s.tier == "core"]
