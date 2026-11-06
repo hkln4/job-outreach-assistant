@@ -248,3 +248,19 @@ def test_reanalysis_proposes_a_diff_and_keeps_owner_fields(monkeypatch):
         db.query(ProfileItem).filter(ProfileItem.source_ref == "owner/reanalyze").delete(synchronize_session=False)
         db.commit()
         db.close()
+
+
+def test_owner_identity_never_calls_the_emails_endpoint():
+    class _Me:
+        login, id, email = "hkln4", 42, "Owner@Example.com"
+
+        def get_emails(self):
+            raise AssertionError("GET /user/emails needs a scope fine-grained tokens lack")
+
+    class _Gh:
+        def get_user(self):
+            return _Me()
+
+    login, emails = github_ingest.owner_identity(_Gh())
+    assert login == "hkln4"
+    assert emails == ["hkln4@users.noreply.github.com", "42+hkln4@users.noreply.github.com", "owner@example.com"]

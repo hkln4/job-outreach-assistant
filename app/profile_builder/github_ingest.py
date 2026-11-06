@@ -61,18 +61,20 @@ def list_candidate_repos(token: str) -> list[dict]:
 
 
 def owner_identity(gh: Github) -> tuple[str, list[str]]:
-    """The token owner's login and known emails, for the commit-share fact."""
+    """The token owner's login and the emails his commits are likely signed
+    with, for the commit-share fact. No /user/emails call: a fine-grained
+    token without the email permission gets a 403 there (logged by PyGithub
+    on every repo), and the login already matches nearly every commit. The
+    public profile email and GitHub's noreply addresses cover the rest."""
     try:
         me = gh.get_user()
-        emails = []
-        try:
-            emails = [e.email for e in me.get_emails()]
-        except Exception:  # noqa: BLE001 - needs the user:email scope; login is enough
-            pass
+        emails = [f"{me.login}@users.noreply.github.com".lower()]
+        if getattr(me, "id", None):
+            emails.append(f"{me.id}+{me.login}@users.noreply.github.com".lower())
         if getattr(me, "email", None):
-            emails.append(me.email)
+            emails.append(me.email.lower())
         return me.login, emails
-    except Exception:  # noqa: BLE001
+    except Exception:  # noqa: BLE001 - without it the commit share is just unknown
         return "", []
 
 
