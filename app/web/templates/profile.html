@@ -98,6 +98,7 @@
       <h3>{{ t("profile.sites_title") }}</h3>
       <form method="post" action="/profile/sites/add" data-loading-text="{{ t('loading.ingesting') }}">
         <input type="url" name="url" placeholder="https://yoursite.com/projects/x" required>
+        <label class="inline"><input type="checkbox" name="follow_subpages" value="1" checked> {{ t("profile.follow_subpages") }}</label>
         <button type="submit">{{ t("profile.button.ingest_site") }}</button>
       </form>
     </div>
@@ -124,6 +125,28 @@
       {% endif %}
     </div>
 
+    {% if reanalyzed or pending_count %}
+    <div class="warning">
+      <p>{{ t("profile.pending_reviews") }} ({{ pending_count }}).
+      {% if reanalyzed %}{{ t("profile.resynthesize_offer") }}{% endif %}</p>
+    </div>
+    {% endif %}
+    {% if proposed_facts %}
+    <div class="warning" id="facts">
+      <h3>{{ t("facts.title") }} ({{ proposed_facts | length }})</h3>
+      <p class="hint">{{ t("facts.hint") }}</p>
+      {% for fact in proposed_facts %}
+        <form method="post" action="/profile/facts/{{ fact.id }}" class="inline-form">
+          <input type="text" name="text" value="{{ fact.text }}">
+          <span class="hint">"{{ fact.quote }}" ({{ t("facts.from." ~ fact.source_kind) }}{% if fact.application_id %}, <a href="/applications/{{ fact.application_id }}">#{{ fact.application_id }}</a>{% endif %})</span>
+          <button type="submit" name="action" value="approve">{{ t("facts.approve") }}</button>
+          <button type="submit" name="action" value="reject" class="secondary">{{ t("facts.reject") }}</button>
+        </form>
+      {% endfor %}
+    </div>
+    {% endif %}
+    <p><a class="button-link secondary" href="/profile/github/changes">{{ t("profile.check_changes") }}</a></p>
+
     <div class="step-card">
       <h3>{{ t("profile.items_title") }} ({{ items | length }})</h3>
       <table class="table">
@@ -132,14 +155,14 @@
           {% for item in items %}
           <tr>
             <td>{{ item.source_type }}</td>
-            <td class="muted">{{ item.source_ref }}</td>
+            <td class="muted"><a href="/profile/items/{{ item.id }}">{{ item.source_ref }}</a>{% if item.owner_edited_fields %} <span class="badge badge-state">{{ t("profile_item.owner_edited") }}</span>{% endif %}{% if item.pending_update %} <span class="badge badge-soft">{{ t("profile_item.has_pending") }}</span>{% endif %}</td>
             <td>{{ item.status.value }}</td>
             <td>
               {% if item.extracted.get("parse_error") %}
                 <span class="badge badge-hard">{{ t("profile.items.failed_prefix") }}</span>
                 <span class="muted">{{ item.extracted.get("parse_error") }}</span>
               {% else %}
-                {{ item.extracted.get("purpose", "") }}
+                {{ item.extracted.get("one_liner") or item.extracted.get("title") or item.extracted.get("purpose", "") }}
               {% endif %}
             </td>
             <td>
@@ -148,6 +171,7 @@
                 <button type="submit">{{ t("common.retry") }}</button>
               </form>
               {% endif %}
+              <a class="button-link secondary" href="/profile/items/{{ item.id }}">{{ t("common.edit") }}</a>
               <form method="post" action="/profile/items/{{ item.id }}/delete" style="display:inline">
                 <button type="submit" class="secondary">{{ t("common.delete") }}</button>
               </form>
@@ -158,6 +182,25 @@
           {% endfor %}
         </tbody>
       </table>
+    </div>
+
+    <div class="step-card" id="writeup">
+      <h3>{{ t("profile.writeup_title") }}</h3>
+      <p class="hint">{{ t("profile.writeup_hint") }}</p>
+      {% if profile and profile.writeup_unknown_tags %}
+        <div class="warning">{{ t("profile.writeup_unknown_tags") }} {% for tag in profile.writeup_unknown_tags %}[E{{ tag }}] {% endfor %}</div>
+      {% endif %}
+      {% if profile and profile.writeup %}
+        <form method="post" action="/profile/writeup">
+          <textarea name="writeup" rows="24">{{ profile.writeup }}</textarea>
+          <button type="submit">{{ t("common.save") }}</button>
+          {% if profile.writeup_generated_at %}<span class="hint">{{ t("profile.writeup_generated") }} {{ profile.writeup_generated_at.strftime("%Y-%m-%d") }}</span>{% endif %}
+        </form>
+      {% endif %}
+      <form method="post" action="/profile/writeup/generate" data-loading-text="{{ t('loading.writing') }}"
+            {% if profile and profile.writeup %}onsubmit="return confirm('{{ t('profile.writeup_regenerate_confirm') }}');"{% endif %}>
+        <button type="submit" class="secondary">{{ t("profile.writeup_regenerate") if profile and profile.writeup else t("profile.writeup_generate") }}</button>
+      </form>
     </div>
 
     <div class="step-card">

@@ -4,6 +4,8 @@ override (for replies that arrive outside Gmail - section 9: email is the
 definitive channel, other channels are informational only), reply checks
 (manual + quiet page-load auto-check), the cross-company applications index,
 and the follow-up (same-thread reminder) flow."""
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
@@ -11,9 +13,17 @@ from sqlalchemy.orm import Session
 
 from app.applications.draft_checks import draft_warnings
 from app.applications.draft_review import review_feedback
-from app.applications.drafting import regenerate_draft
+from app.applications.draft_review import apply_issue
+from app.applications.drafting import known_records_text, refresh_grounding, regenerate_draft
+from app.applications.facts import propose_facts
+from app.applications.style import edit_diff, save_example
 from app.applications.follow_ups import draft_follow_up, send_follow_up
-from app.applications.reply_check import auto_check_if_due, check_application_reply
+from app.applications.reply_check import (
+    alternative_emails,
+    auto_check_if_due,
+    check_application_reply,
+    resend_after_bounce,
+)
 from app.applications.review import (
     SENT_STATES,
     AlreadySentError,
@@ -37,8 +47,10 @@ from app.models import (
     ContactState,
     FollowUp,
     FollowUpState,
+    StyleExample,
+    StyleNote,
 )
-from app.web.deps import get_draft_llm, get_review_llm
+from app.web.deps import get_draft_llm, get_llm, get_review_llm
 from app.web.errors import NotFoundError
 from app.web.render import render
 
@@ -139,6 +151,8 @@ def application_detail(
             "draft_review": draft_review,
             "review_feedback": review_feedback(draft_review),
             "follow_ups": follow_ups,
+            "is_good_example": db.query(StyleExample).filter(StyleExample.application_id == application.id).first() is not None,
+            "alternative_emails": alternative_emails(application),
             "pending_follow_up": next(
                 (f for f in follow_ups if f.state == FollowUpState.PENDING_APPROVAL), None
             ),
@@ -193,16 +207,25 @@ def edit_application(
     cover_letter_body: str = Form(...),
     target_position: str = Form(""),
     db: Session = Depends(get_db),
+    fact_llm: LLMProvider = Depends(get_llm),
 ):
-    """Direct owner edit of the AI draft - no LLM call. Lets the owner fix small
-    things (including the target position) by hand instead of always going
-    through reject-with-feedback."""
+    """Direct owner edit of the AI draft. The change is kept as a diff in the
+    revision history (style memory), the grounding audit re-runs on the new
+    text, and facts the owner added about himself are proposed for the profile."""
     application = _application_or_404(db, application_id)
     if is_sent(application):  # what was sent is history, not a draft
         return _blocked_redirect(application_id)
+    before = application.cover_letter_body
     application.subject = subject
     application.cover_letter_body = cover_letter_body
     application.target_position = target_position.strip()
+    if before != cover_letter_body:
+        diff = edit_diff(before, cover_letter_body)
+        application.revision_history = [*(application.revision_history or [{}]), {"edit_diff": diff, "at": datetime.now(timezone.utc).isoformat()}]
+        refresh_grounding(db, application)
+        added = "\n".join(line[1:] for line in diff.splitlines() if line.startswith("+") and not line.startswith("+++"))
+        db.commit()
+        propose_facts(db, fact_llm, added, source_kind="edit", application_id=application.id, known=known_records_text(db, application))
     db.commit()
     return RedirectResponse(url=f"/applications/{application_id}", status_code=303)
 
@@ -214,12 +237,78 @@ def reject(
     db: Session = Depends(get_db),
     llm: LLMProvider = Depends(get_draft_llm),
     review_llm: LLMProvider | None = Depends(get_review_llm),
+    fact_llm: LLMProvider = Depends(get_llm),
 ):
     application = _application_or_404(db, application_id)
+    known = known_records_text(db, application)
     try:
         regenerate_draft(db, llm, application, feedback.strip(), review_llm=review_llm)
     except AlreadySentError:
         return _blocked_redirect(application_id)
+    propose_facts(db, fact_llm, feedback, source_kind="feedback", application_id=application.id, known=known)
+    return RedirectResponse(url=f"/applications/{application_id}", status_code=303)
+
+
+@router.post("/{application_id}/angle")
+def use_angle(
+    application_id: int,
+    angle_index: int = Form(...),
+    db: Session = Depends(get_db),
+    llm: LLMProvider = Depends(get_draft_llm),
+    review_llm: LLMProvider | None = Depends(get_review_llm),
+):
+    """Rebuild the letter around another of the saved angles (no new angle call)."""
+    application = _application_or_404(db, application_id)
+    try:
+        regenerate_draft(db, llm, application, "", review_llm=review_llm, angle_index=angle_index)
+    except AlreadySentError:
+        return _blocked_redirect(application_id)
+    return RedirectResponse(url=f"/applications/{application_id}", status_code=303)
+
+
+@router.post("/{application_id}/review-edits/{index}")
+def apply_review_edit(application_id: int, index: int, db: Session = Depends(get_db)):
+    """Apply one reviewer edit (quote -> replacement). The owner picks them one
+    by one; a quote that is no longer in the letter is marked stale."""
+    application = _application_or_404(db, application_id)
+    if is_sent(application):
+        return _blocked_redirect(application_id)
+    history = list(application.revision_history or [{}])
+    review = dict(history[0].get("review") or {})
+    issues = list(review.get("issues") or [])
+    if 0 <= index < len(issues):
+        issue = dict(issues[index])
+        applied = apply_issue(application.subject, application.cover_letter_body, issue)
+        if applied is None:
+            issue["stale"] = True
+        else:
+            before = application.cover_letter_body
+            application.subject, application.cover_letter_body = applied
+            issue["applied"] = True
+            history.append({"edit_diff": edit_diff(before, application.cover_letter_body), "review_edit": issue.get("kind"), "at": datetime.now(timezone.utc).isoformat()})
+        issues[index] = issue
+        review["issues"] = issues
+        history[0] = {**history[0], "review": review}
+        application.revision_history = history
+        refresh_grounding(db, application)
+        db.commit()
+    return RedirectResponse(url=f"/applications/{application_id}#draft-checks", status_code=303)
+
+
+@router.post("/{application_id}/good-example")
+def mark_good_example(application_id: int, db: Session = Depends(get_db)):
+    application = _application_or_404(db, application_id)
+    if application.cover_letter_body:
+        save_example(db, application)
+    return RedirectResponse(url=f"/applications/{application_id}", status_code=303)
+
+
+@router.post("/{application_id}/style-note")
+def promote_style_note(application_id: int, text: str = Form(...), db: Session = Depends(get_db)):
+    """Reject feedback -> a standing rule for every future draft."""
+    if text.strip():
+        db.add(StyleNote(text=text.strip(), source_application_id=application_id))
+        db.commit()
     return RedirectResponse(url=f"/applications/{application_id}", status_code=303)
 
 
@@ -274,6 +363,17 @@ def delete_application(application_id: int, db: Session = Depends(get_db)):
     db.delete(application)
     db.commit()
     return RedirectResponse(url=f"/companies/{company_id}", status_code=303)
+
+
+@router.post("/{application_id}/resend")
+def resend(application_id: int, to: str = Form(...), db: Session = Depends(get_db)):
+    """After a bounce: a new pending copy of the same letter, addressed to
+    another known address. It still goes through review and Approve."""
+    application = _application_or_404(db, application_id)
+    if application.state != ApplicationState.BOUNCED:
+        return RedirectResponse(url=f"/applications/{application_id}", status_code=303)
+    copy = resend_after_bounce(db, application, to)
+    return RedirectResponse(url=f"/applications/{copy.id}", status_code=303)
 
 
 @router.post("/{application_id}/check-reply")

@@ -218,3 +218,25 @@ def test_has_usable_research_covers_records_written_before_the_check():
         assert workflow.has_usable_research(never) is False
     finally:
         db.close()
+
+
+def test_rerun_on_unchanged_site_reuses_the_ai_answers_without_a_call(monkeypatch):
+    pages = [{"url": "https://same.example", "text": "Same text as before." + PAGE_PAD}]
+    monkeypatch.setattr(workflow, "fetch_company_research", lambda url, careers_url=None: {"pages": pages})
+    db = SessionLocal()
+    try:
+        company = Company(name="Same Co", website_url="https://same.example")
+        db.add(company)
+        db.commit()
+        first = SequencedLLMProvider([json.dumps({"summary": "Builds things."}), json.dumps({"flags": []})])
+        workflow.research_company(db, first, company)
+        calls_first = len(first.calls)
+        again = SequencedLLMProvider([])
+        workflow.research_company(db, again, company)
+        assert again.calls == [] and company.research["reused_llm"] is True
+        assert company.research["summary"] == "Builds things."
+        forced = SequencedLLMProvider([json.dumps({"summary": "Fresh."}), json.dumps({"flags": []})])
+        workflow.research_company(db, forced, company, force=True)
+        assert len(forced.calls) == calls_first and company.research["summary"] == "Fresh."
+    finally:
+        db.close()

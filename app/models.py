@@ -37,6 +37,9 @@ class ApplicationState(str, enum.Enum):
     INTERVIEW = "INTERVIEW"
     REJECTED = "REJECTED"
     NO_RESPONSE = "NO_RESPONSE"
+    # Delivery failed (mailer-daemon / delivery-status report). The address is
+    # recorded as invalid on the company and the owner is offered another one.
+    BOUNCED = "BOUNCED"
 
 
 class FollowUpState(str, enum.Enum):
@@ -85,6 +88,11 @@ class Profile(Base):
     # Optional owner-written example cover letter. When set, drafting follows its
     # structure/tone/format instead of the app's generic default structure.
     cover_letter_template: Mapped[str] = mapped_column(Text, default="")
+    # Long "about me" document generated from all records, edited by the owner
+    # (app/profile_builder/writeup.py). Never sent anywhere.
+    writeup: Mapped[str] = mapped_column(Text, default="")
+    writeup_generated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    writeup_unknown_tags: Mapped[list] = mapped_column(JSON, default=list)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, onupdate=_utcnow)
 
 
@@ -101,6 +109,19 @@ class ProfileItem(Base):
         Enum(ProfileItemStatus), default=ProfileItemStatus.NEEDS_REVIEW
     )
     source_urls: Mapped[list] = mapped_column(JSON, default=list)
+    # Deterministic facts computed by code, not the model (repo manifests,
+    # tests, CI, commit stats - app/profile_builder/repo_facts.py).
+    facts: Mapped[dict] = mapped_column(JSON, default=dict)
+    # What the record was built from: {pushed_at, head_sha, analyzed_at}.
+    source_version: Mapped[dict] = mapped_column(JSON, default=dict)
+    # Owner answers to the record's open_questions: [{question, answer, source: "owner", at}].
+    owner_facts: Mapped[list] = mapped_column(JSON, default=list)
+    # Fields the owner edited by hand - re-analysis never overwrites them.
+    owner_edited_fields: Mapped[list] = mapped_column(JSON, default=list)
+    # Re-analysis proposals for owner-edited fields / a re-analysis diff awaiting review.
+    pending_update: Mapped[dict] = mapped_column(JSON, default=dict)
+    # For one entry of a CV/LinkedIn file: the file it came from.
+    parent_ref: Mapped[str | None] = mapped_column(String, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
 
 
@@ -129,6 +150,17 @@ class OwnerSettings(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     email_language: Mapped[str] = mapped_column(String, default="")
+    # Identity for the signature block and the CV contact row - written by the
+    # app, never by a model. Empty fields fall back to what the CV says
+    # (app/applications/signature.py::owner_identity).
+    full_name: Mapped[str] = mapped_column(String, default="")
+    title: Mapped[str] = mapped_column(String, default="")
+    email: Mapped[str] = mapped_column(String, default="")
+    phone: Mapped[str] = mapped_column(String, default="")
+    city: Mapped[str] = mapped_column(String, default="")
+    linkedin_url: Mapped[str] = mapped_column(String, default="")
+    github_url: Mapped[str] = mapped_column(String, default="")
+    portfolio_url: Mapped[str] = mapped_column(String, default="")
 
 
 def get_email_language(db) -> str:
@@ -164,6 +196,9 @@ class Company(Base):
     # owner can fill it in or override it by hand when the site has no link.
     linkedin_url: Mapped[str | None] = mapped_column(String, nullable=True)
     contact_email: Mapped[str | None] = mapped_column(String, nullable=True)
+    liveness: Mapped[dict] = mapped_column(JSON, default=dict)  # same shape as CompanyCandidate.liveness
+    # Addresses that bounced (ApplicationState.BOUNCED) - never offered again.
+    invalid_emails: Mapped[list] = mapped_column(JSON, default=list)
     state: Mapped[CompanyState] = mapped_column(Enum(CompanyState), default=CompanyState.APPLICABLE)
     # Owner-entered context: why this company is on the list at all. Injected
     # into the drafting prompt so the cover letter reflects the owner's actual
@@ -196,6 +231,10 @@ class Application(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"))
     cv_id: Mapped[int | None] = mapped_column(ForeignKey("cvs.id"), nullable=True)
+    # The posting this application answers (roadmap phase 3); None = open application.
+    job_posting_id: Mapped[int | None] = mapped_column(ForeignKey("job_postings.id"), nullable=True)
+    # How the owner applied: email | site_form | ats_form | contact_form (phase 6).
+    channel: Mapped[str] = mapped_column(String, default="email")
     target_position: Mapped[str] = mapped_column(String, default="")
     # Owner-entered reason for reaching out (open/speculative applications have
     # no job posting - the reason is what the draft is grounded in instead).
@@ -218,10 +257,21 @@ class Application(Base):
     follow_up_due_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     gmail_message_id: Mapped[str | None] = mapped_column(String, nullable=True)
     gmail_thread_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    # Our own RFC 2822 Message-ID, set before sending, so a send that timed out
+    # after Gmail accepted it can be found in the Sent folder (never resent).
+    rfc_message_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    sent_to: Mapped[str | None] = mapped_column(String, nullable=True)
+    # The exact file attached at send time: {path, sha256, name}. `path` is a
+    # copy under data/sent_cvs/, so replacing a CV variant can't rewrite history.
+    cv_snapshot: Mapped[dict] = mapped_column(JSON, default=dict)
+    # Things the reply check saw that aren't replies: auto-replies, bounces,
+    # possible replies outside the thread. [{kind, detail, message_id, at, ...}]
+    notes: Mapped[list] = mapped_column(JSON, default=list)
     revision_history: Mapped[list] = mapped_column(JSON, default=list)  # [{feedback, previous_body, at}]
 
     company: Mapped["Company"] = relationship(back_populates="applications")
     cv: Mapped["CV | None"] = relationship()
+    job_posting: Mapped["JobPosting | None"] = relationship()
     follow_ups: Mapped[list["FollowUp"]] = relationship(back_populates="application")
 
 
@@ -269,7 +319,9 @@ class DiscoverySource(Base):
     name: Mapped[str] = mapped_column(String)  # the technopark, e.g. "ODTÜ Teknokent"
     city: Mapped[str] = mapped_column(String, default="")
     url: Mapped[str] = mapped_column(String)
-    kind: Mapped[str] = mapped_column(String, default="html")  # "odtu_json" | "html"
+    kind: Mapped[str] = mapped_column(String, default="html")  # "odtu_json" | "html" | "json" | "file" | "github_orgs" | ...
+    # Reader settings: field mapping for "json"/"file" sources, location for "github_orgs".
+    config: Mapped[dict] = mapped_column(JSON, default=dict)
     last_imported_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     last_error: Mapped[str] = mapped_column(Text, default="")
 
@@ -292,7 +344,151 @@ class CompanyCandidate(Base):
     # careers_page, flags[{preference_id, type, description, evidence_snippet}], error}
     triage: Mapped[dict] = mapped_column(JSON, default=dict)
     triaged_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # No-LLM liveness check (app/discovery/liveness.py): {status, signals[], checked_at, final_url}
+    liveness: Mapped[dict] = mapped_column(JSON, default=dict)
     company_id: Mapped[int | None] = mapped_column(ForeignKey("companies.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
 
     source: Mapped["DiscoverySource"] = relationship()
+
+
+class LLMCallLog(Base):
+    """One row per LLM call (CLAUDE.md section 8): what it was for, which model,
+    how many tokens, and which company / application / profile item it served.
+    Written by app/llm/call_log.py around every provider; read by /costs."""
+
+    __tablename__ = "llm_call_logs"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    purpose: Mapped[str] = mapped_column(String, default="unknown")
+    provider: Mapped[str] = mapped_column(String, default="")
+    model: Mapped[str] = mapped_column(String, default="")
+    input_tokens: Mapped[int] = mapped_column(default=0)
+    output_tokens: Mapped[int] = mapped_column(default=0)
+    company_id: Mapped[int | None] = mapped_column(nullable=True)
+    application_id: Mapped[int | None] = mapped_column(nullable=True)
+    profile_item_id: Mapped[int | None] = mapped_column(nullable=True)
+    error: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
+
+
+class PostingStatus(str, enum.Enum):
+    NEW = "NEW"
+    SHORTLISTED = "SHORTLISTED"
+    APPLIED = "APPLIED"
+    EXPIRED = "EXPIRED"
+    DISMISSED = "DISMISSED"
+
+
+class JobPosting(Base):
+    """A specific job posting (roadmap phase 3, posting-first entry point).
+    Enters by owner paste, a careers-page change, or a public ATS board."""
+
+    __tablename__ = "job_postings"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    company_id: Mapped[int | None] = mapped_column(ForeignKey("companies.id"), nullable=True)
+    source: Mapped[str] = mapped_column(String, default="manual")  # manual | careers_page | ats_api | linkedin
+    url: Mapped[str] = mapped_column(String, default="")
+    apply_url: Mapped[str] = mapped_column(String, default="")
+    title: Mapped[str] = mapped_column(String, default="")
+    company_name: Mapped[str] = mapped_column(String, default="")  # as the posting names it
+    location: Mapped[str] = mapped_column(String, default="")
+    work_mode: Mapped[str] = mapped_column(String, default="unknown")  # onsite | hybrid | remote | unknown
+    language: Mapped[str] = mapped_column(String, default="")  # tr | en
+    seniority: Mapped[str] = mapped_column(String, default="unknown")
+    description_text: Mapped[str] = mapped_column(Text, default="")  # sanitized, full
+    requirements: Mapped[list] = mapped_column(JSON, default=list)
+    nice_to_have: Mapped[list] = mapped_column(JSON, default=list)
+    deadline: Mapped[str] = mapped_column(String, default="")
+    date_posted: Mapped[str] = mapped_column(String, default="")
+    content_hash: Mapped[str] = mapped_column(String, default="")
+    first_seen_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
+    status: Mapped[PostingStatus] = mapped_column(Enum(PostingStatus), default=PostingStatus.NEW)
+    # Deterministic gates: {location: {result, quote}, language, seniority, remote_eligibility}
+    gates: Mapped[dict] = mapped_column(JSON, default=dict)
+    # Fit evaluation: {verdict, scores{dim: {score, posting_quote, evidence_ids, note}}, strengths[], gaps[]}
+    fit: Mapped[dict] = mapped_column(JSON, default=dict)
+    legitimacy_flags: Mapped[list] = mapped_column(JSON, default=list)
+    preference_check: Mapped[list] = mapped_column(JSON, default=list)
+    hard_exclusion_confirmed: Mapped[bool] = mapped_column(default=False)
+    # Unmatched company the owner may approve: {name, website_url}
+    proposed_company: Mapped[dict] = mapped_column(JSON, default=dict)
+    content_safety: Mapped[dict] = mapped_column(JSON, default=dict)
+    extra: Mapped[dict] = mapped_column(JSON, default=dict)  # ATS ids, parse notes, expiry check result
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
+
+    company: Mapped["Company | None"] = relationship()
+
+
+class AtsBoard(Base):
+    """A company's public ATS job board (Greenhouse, Lever, Ashby,
+    SmartRecruiters ...), found on its site or via the search API. Postings
+    are always read fresh from the board's public endpoint."""
+
+    __tablename__ = "ats_boards"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    provider: Mapped[str] = mapped_column(String)
+    token: Mapped[str] = mapped_column(String)
+    url: Mapped[str] = mapped_column(String, default="")
+    company_id: Mapped[int | None] = mapped_column(ForeignKey("companies.id"), nullable=True)
+    company_name: Mapped[str] = mapped_column(String, default="")
+    found_via: Mapped[str] = mapped_column(String, default="site")  # site | search | manual
+    last_checked_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_result: Mapped[dict] = mapped_column(JSON, default=dict)  # {accepted, ambiguous, rejected, error}
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
+
+
+class StyleExample(Base):
+    """An approved letter the owner marked as a good example (roadmap phase 4).
+    The two most similar ones (same language, same CV target role) are shown
+    to the writer as style references."""
+
+    __tablename__ = "style_examples"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    application_id: Mapped[int | None] = mapped_column(ForeignKey("applications.id"), nullable=True)
+    language: Mapped[str] = mapped_column(String, default="")
+    target_role: Mapped[str] = mapped_column(String, default="")
+    subject: Mapped[str] = mapped_column(String, default="")
+    body: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
+
+
+class StyleNote(Base):
+    """A standing writing rule the owner promoted from feedback ("never
+    mention GPA"). Active notes go into every drafting prompt."""
+
+    __tablename__ = "style_notes"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    text: Mapped[str] = mapped_column(Text)
+    active: Mapped[bool] = mapped_column(default=True)
+    source_application_id: Mapped[int | None] = mapped_column(nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
+
+
+class ProfileFactStatus(str, enum.Enum):
+    PROPOSED = "proposed"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+
+
+class ProfileFact(Base):
+    """A fact about the owner stated outside ingestion - in reject feedback or
+    a draft edit (roadmap phase 4, fact capture). Proposed by the app, added to
+    the profile only on the owner's approval (as a ProfileItem with
+    source_type "owner", so it counts as evidence)."""
+
+    __tablename__ = "profile_facts"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    text: Mapped[str] = mapped_column(Text)
+    quote: Mapped[str] = mapped_column(Text, default="")  # the owner's own words it came from
+    source_kind: Mapped[str] = mapped_column(String, default="feedback")  # feedback | edit
+    application_id: Mapped[int | None] = mapped_column(nullable=True)
+    status: Mapped[ProfileFactStatus] = mapped_column(Enum(ProfileFactStatus), default=ProfileFactStatus.PROPOSED)
+    profile_item_id: Mapped[int | None] = mapped_column(nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)

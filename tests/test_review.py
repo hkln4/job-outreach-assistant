@@ -1,6 +1,7 @@
 import app.applications.review as review
 from app.db import SessionLocal, init_db
 from app.models import CV, Application, ApplicationState, Company
+from tests.conftest import make_cv_file
 
 
 def setup_module():
@@ -8,7 +9,7 @@ def setup_module():
 
 
 def _seed_company_and_application(db, contact_email="jobs@acme.example"):
-    cv = CV(name="Backend CV", file_path="data/cv_variants/backend.pdf")
+    cv = CV(name="Backend CV", file_path=make_cv_file("backend.pdf"))
     company = Company(name="Acme", website_url="https://acme.example", contact_email=contact_email)
     db.add_all([cv, company])
     db.commit()
@@ -30,7 +31,7 @@ def _seed_company_and_application(db, contact_email="jobs@acme.example"):
 
 def test_approve_and_send_transitions_to_awaiting_reply(monkeypatch):
     monkeypatch.setattr(
-        review, "send_email", lambda to, subject, body_text, attachment_path=None, attachment_name=None: {"id": "m1", "threadId": "t1"}
+        review, "send_email", lambda to, subject, body_text, attachment_path=None, attachment_name=None, **kwargs: {"id": "m1", "threadId": "t1"}
     )
 
     db = SessionLocal()
@@ -48,7 +49,7 @@ def test_approve_and_send_transitions_to_awaiting_reply(monkeypatch):
 
 def test_approve_and_send_blocks_duplicate_recipient(monkeypatch):
     monkeypatch.setattr(
-        review, "send_email", lambda to, subject, body_text, attachment_path=None, attachment_name=None: {"id": "m2", "threadId": "t2"}
+        review, "send_email", lambda to, subject, body_text, attachment_path=None, attachment_name=None, **kwargs: {"id": "m2", "threadId": "t2"}
     )
 
     db = SessionLocal()
@@ -94,7 +95,7 @@ def test_approve_and_send_rejects_invalid_email():
 
 
 def _fake_send(calls):
-    def send(to, subject, body_text, attachment_path=None, attachment_name=None):
+    def send(to, subject, body_text, attachment_path=None, attachment_name=None, **kwargs):
         calls.append(to)
         return {"id": f"m{len(calls)}", "threadId": f"t{len(calls)}"}
 
@@ -145,7 +146,7 @@ def test_hand_edited_state_does_not_rearm_a_sent_application(monkeypatch):
 
 
 def test_failed_gmail_send_releases_the_claim(monkeypatch):
-    def failing_send(to, subject, body_text, attachment_path=None, attachment_name=None):
+    def failing_send(to, subject, body_text, attachment_path=None, attachment_name=None, **kwargs):
         raise RuntimeError("gmail down")
 
     monkeypatch.setattr(review, "send_email", failing_send)
@@ -217,7 +218,7 @@ def test_manual_state_changes_follow_the_lifecycle(monkeypatch):
 def test_attachment_goes_out_under_the_cv_display_name(monkeypatch):
     seen = {}
 
-    def send(to, subject, body_text, attachment_path=None, attachment_name=None):
+    def send(to, subject, body_text, attachment_path=None, attachment_name=None, **kwargs):
         seen.update(path=attachment_path, name=attachment_name)
         return {"id": "m-att", "threadId": "t-att"}
 
@@ -226,6 +227,11 @@ def test_attachment_goes_out_under_the_cv_display_name(monkeypatch):
     try:
         company, application = _seed_company_and_application(db, contact_email="att@acme.example")
         review.approve_and_send(db, application, company.contact_email)
-        assert seen == {"path": "data/cv_variants/backend.pdf", "name": "Backend_CV.pdf"}
+        # the attached file is the snapshot copy, recorded on the application
+        assert seen["name"] == "Backend_CV.pdf"
+        assert seen["path"] == application.cv_snapshot["path"] != application.cv.file_path
+        assert len(application.cv_snapshot["sha256"]) == 64
+        assert application.sent_to == "att@acme.example"
+        assert application.rfc_message_id
     finally:
         db.close()

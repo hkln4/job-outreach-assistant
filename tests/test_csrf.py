@@ -8,6 +8,7 @@ import app.applications.review as review
 from app.db import SessionLocal, init_db
 from app.main import app
 from app.models import CV, Application, ApplicationState, Company
+from tests.conftest import make_cv_file
 
 client = TestClient(app)
 ORIGINAL_BODY = "Dear CSRF Co, ..."
@@ -18,7 +19,7 @@ def setup_module():
     db = SessionLocal()
     try:
         if db.query(CV).first() is None:  # onboarding gate redirects everywhere without one
-            db.add(CV(name="CSRF CV", file_path="data/cv_variants/csrf.pdf"))
+            db.add(CV(name="CSRF CV", file_path=make_cv_file("csrf.pdf")))
             db.commit()
     finally:
         db.close()

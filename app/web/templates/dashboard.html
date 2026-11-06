@@ -5,6 +5,7 @@
     <h1>{{ t("dashboard.title") }}</h1>
     <a class="button-link" href="/companies">{{ t("dashboard.button.add_company") }}</a>
   </div>
+  <p class="hint"><a href="/costs">{{ t("dashboard.cost_this_month") }} ${{ "%.2f"|format(month_cost) }}</a></p>
 
   {% if not setup_done %}
   <div class="card">
@@ -25,7 +26,21 @@
     <p>
       {{ check_summary.checked }} {{ t("dashboard.check_summary.checked") }} ·
       {{ check_summary.replies }} {{ t("dashboard.check_summary.replies") }}
+      {% if check_summary.bounces %} · {{ check_summary.bounces }} {{ t("dashboard.check_summary.bounces") }}{% endif %}
     </p>
+  </div>
+  {% endif %}
+
+  {% if new_postings %}
+  <div class="section card">
+    <h2>{{ t("dashboard.section.new_postings") }} ({{ new_postings | length }})</h2>
+    <ul class="link-list">
+      {% for posting in new_postings %}
+        <li><a href="/postings/{{ posting.id }}">{{ posting.title or t("common.untitled") }}</a>
+          <span class="hint">{{ posting.company.name if posting.company else posting.company_name }} · {{ t("postings.source." ~ posting.source) }}</span>
+          {% set v = (posting.fit or {}).get("verdict") %}{% if v %}<span class="badge">{{ t("postings.verdict." ~ v) }}</span>{% endif %}</li>
+      {% endfor %}
+    </ul>
   </div>
   {% endif %}
 

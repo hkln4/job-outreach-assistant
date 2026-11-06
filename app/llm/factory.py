@@ -4,6 +4,7 @@ from functools import lru_cache
 
 from app.config import Settings, get_settings
 from app.llm.base import LLMProvider
+from app.llm.call_log import LoggedLLMProvider
 
 
 def _build(settings: Settings, *, draft: bool) -> LLMProvider:
@@ -11,13 +12,13 @@ def _build(settings: Settings, *, draft: bool) -> LLMProvider:
         from app.llm.gemini_provider import GeminiProvider
 
         model = (draft and settings.gemini_draft_model) or settings.gemini_model
-        return GeminiProvider(api_key=settings.gemini_api_key, model=model)
+        return LoggedLLMProvider(GeminiProvider(api_key=settings.gemini_api_key, model=model), "gemini", model)
 
     if settings.llm_provider == "claude":
         from app.llm.claude_provider import ClaudeProvider
 
         model = (draft and settings.anthropic_draft_model) or settings.anthropic_model
-        return ClaudeProvider(api_key=settings.anthropic_api_key, model=model)
+        return LoggedLLMProvider(ClaudeProvider(api_key=settings.anthropic_api_key, model=model), "claude", model)
 
     raise ValueError(f"Unknown LLM_PROVIDER: {settings.llm_provider!r} (expected 'gemini' or 'claude')")
 

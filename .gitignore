@@ -17,6 +17,8 @@ data/*.db
 data/*.sqlite3
 data/cv_variants/
 data/profile_sources/
+data/sent_cvs/
+data/discovery_uploads/
 
 # Demo recording artifacts (scripts/demo/ - only the scripts are committed)
 scripts/demo/demo.db

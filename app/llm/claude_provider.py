@@ -72,9 +72,12 @@ class ClaudeProvider(LLMProvider):
         if message.stop_reason == "refusal":
             raise ValueError(f"{self._model} declined this request - try again or rephrase the input.")
         text = "".join(block.text for block in message.content if block.type == "text")
+        usage = getattr(message, "usage", None)
         return LLMResponse(
             text=text,
             model=getattr(message, "model", self._model),
             provider="claude",
             raw=None,
+            input_tokens=int(getattr(usage, "input_tokens", 0) or 0),
+            output_tokens=int(getattr(usage, "output_tokens", 0) or 0),
         )

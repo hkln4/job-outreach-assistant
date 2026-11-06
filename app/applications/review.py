@@ -1,12 +1,14 @@
 """Approve -> send (CLAUDE.md section 5 step 5, section 9 deliverability rules).
 No auto-send - only ever called after explicit UI approval."""
+import hashlib
+import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
-from app.email_send.gmail_client import send_email, validate_email
+from app.email_send.gmail_client import find_sent_message, new_message_id, send_email, validate_email
 from app.models import Application, ApplicationState, Contact, ContactState, FollowUp, FollowUpState
 from app.web.files import safe_component
 
@@ -17,7 +19,11 @@ SENT_STATES = [
     ApplicationState.INTERVIEW,
     ApplicationState.NO_RESPONSE,
     ApplicationState.REJECTED,
+    ApplicationState.BOUNCED,
 ]
+# A bounced email never reached the company, so it doesn't count as "already
+# contacted" for the dedup rule - resending to another address is the point.
+CONTACTED_STATES = [state for state in SENT_STATES if state != ApplicationState.BOUNCED]
 
 
 class AlreadySentError(ValueError):
@@ -98,7 +104,7 @@ def find_prior_send(
     exact address (a contact at another company could share an address; a
     company's contact_email may have changed since the last send - matching on
     both catches either case). Returns the prior application for the warning UI."""
-    query = db.query(Application).filter(Application.state.in_(SENT_STATES))
+    query = db.query(Application).filter(Application.state.in_(CONTACTED_STATES))
     if exclude_application_id is not None:
         query = query.filter(Application.id != exclude_application_id)
 
@@ -145,6 +151,37 @@ def seconds_until_send_allowed(db: Session, now: datetime | None = None) -> int:
     return max(0, int(settings.send_delay_seconds - elapsed))
 
 
+def _find_after_failed_send(message_id: str, to: str, subject: str, after: datetime) -> dict | None:
+    try:
+        return find_sent_message(message_id, to, subject, after)
+    except Exception:  # noqa: BLE001 - the original send error is the one to show
+        return None
+
+
+def snapshot_cv(application: Application) -> dict:
+    """Copy the CV about to be attached to data/sent_cvs/ and describe it:
+    {path, sha256, name}. The copy is what gets attached, so the record and
+    the email can't differ."""
+    cv = application.cv
+    source = Path(cv.file_path)
+    if not source.is_file():
+        raise ValueError(f"The CV file for {cv.name!r} is missing ({cv.file_path}) - re-upload it before sending.")
+    data = source.read_bytes()
+    digest = hashlib.sha256(data).hexdigest()
+    sent_dir = Path(get_settings().sent_cvs_dir)
+    sent_dir.mkdir(parents=True, exist_ok=True)
+    target = sent_dir / f"application_{application.id}_{digest[:12]}{source.suffix}"
+    if not target.exists():
+        shutil.copyfile(source, target)
+    return {
+        "path": str(target),
+        "sha256": digest,
+        "name": f"{safe_component(cv.name)}{source.suffix}",
+        "cv_id": cv.id,
+        "original_path": str(source),
+    }
+
+
 def approve_and_send(db: Session, application: Application, to: str, allow_duplicate: bool = False) -> Application:
     ensure_not_sent(application)
     if application.state != ApplicationState.PENDING_APPROVAL:
@@ -158,6 +195,9 @@ def approve_and_send(db: Session, application: Application, to: str, allow_dupli
     wait = seconds_until_send_allowed(db)
     if wait > 0:
         raise SendDelayError(wait)
+
+    # Copy the CV first: a missing file must stop the send before the claim.
+    snapshot = snapshot_cv(application) if application.cv and application.cv.file_path else {}
 
     # Claim the send before talking to Gmail: a conditional UPDATE only one
     # request can win (SQLite serializes writes), so a double-click or two tabs
@@ -177,26 +217,45 @@ def approve_and_send(db: Session, application: Application, to: str, allow_dupli
         raise AlreadySentError(application)
 
     cv = application.cv
+    message_id = new_message_id()
+    application.rfc_message_id = message_id
+    db.commit()
+    attempted_at = datetime.now(timezone.utc)
     try:
         result = send_email(
             to=to,
             subject=application.subject,
             body_text=application.cover_letter_body,
-            attachment_path=cv.file_path if cv else None,
-            attachment_name=f"{safe_component(cv.name)}{Path(cv.file_path).suffix}" if cv else None,
+            attachment_path=snapshot.get("path") or (cv.file_path if cv else None),
+            attachment_name=snapshot.get("name") or (f"{safe_component(cv.name)}{Path(cv.file_path).suffix}" if cv else None),
+            message_id=message_id,
         )
     except Exception:
-        application.state = ApplicationState.PENDING_APPROVAL
-        db.commit()
-        raise
+        # A timeout can come after Gmail accepted the message: look in Sent
+        # before un-claiming, or Approve would be re-armed and send it twice.
+        result = _find_after_failed_send(message_id, to, application.subject, attempted_at)
+        if result is None:
+            application.state = ApplicationState.PENDING_APPROVAL
+            application.rfc_message_id = None
+            db.commit()
+            raise
+        application.notes = list(application.notes or []) + [
+            {"kind": "send_recovered", "detail": "Gmail raised, but the message was found in Sent.", "at": attempted_at.isoformat()}
+        ]
 
     from app.applications.follow_ups import next_follow_up_due  # local import to avoid a cycle
 
     application.state = ApplicationState.AWAITING_REPLY
     application.gmail_message_id = result["id"]
     application.gmail_thread_id = result["threadId"]
+    application.sent_to = to
+    application.cv_snapshot = snapshot
     application.sent_at = datetime.now(timezone.utc)
     application.follow_up_due_at = next_follow_up_due(application.sent_at)
+    if application.job_posting is not None:
+        from app.models import PostingStatus
+
+        application.job_posting.status = PostingStatus.APPLIED
     db.commit()
     db.refresh(application)
     return application

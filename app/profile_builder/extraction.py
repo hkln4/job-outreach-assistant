@@ -1,7 +1,10 @@
 """Per-item structured extraction (CLAUDE.md section 3: "per-item deep pass").
 One LLM call per item, forced structured JSON output. Never invents - unknown
 fields must be explicit, never hand-waved."""
+from pydantic import BaseModel
+
 from app.llm.base import LLMProvider
+from app.llm.call_log import llm_context
 from app.llm.json_utils import parse_json_object
 
 EXTRACTION_SYSTEM_PROMPT = """You are extracting a structured record from ONE piece of \
@@ -20,12 +23,22 @@ never guess.
 EXTRACTION_FALLBACK = {"purpose": "unknown", "stack": [], "role": "unknown", "highlights": []}
 
 
+# Answer shape, sent as the structured-output schema like every other call site.
+class ItemRecord(BaseModel):
+    purpose: str
+    stack: list[str]
+    role: str
+    highlights: list[str]
+
+
+@llm_context("profile_extraction")
 def extract_item(llm: LLMProvider, raw_text: str) -> dict:
     response = llm.generate(
         prompt=raw_text[:12000],  # cost discipline (section 8): trimmed input
         system=EXTRACTION_SYSTEM_PROMPT,
         temperature=0.0,
         max_output_tokens=1024,
+        json_schema=ItemRecord.model_json_schema(),
     )
     return parse_json_object(response.text, fallback=EXTRACTION_FALLBACK)
 

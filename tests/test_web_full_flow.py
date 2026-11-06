@@ -18,6 +18,17 @@ client = TestClient(app)
 
 def setup_module():
     init_db()
+    # A full flow from an empty profile: records other test modules left in
+    # the shared test database would add an evidence-selection call and shift
+    # this test's canned LLM sequence.
+    from app.models import ProfileItem
+
+    db = SessionLocal()
+    try:
+        db.query(ProfileItem).delete()
+        db.commit()
+    finally:
+        db.close()
 
 
 def teardown_module():
@@ -33,11 +44,11 @@ def test_full_workflow_add_preference_company_research_draft_approve(monkeypatch
     # page to /cvs until at least one CV exists, and a file is required.
     r = client.post(
         "/cvs",
-        data={"name": "Backend CV", "target_role": "Backend Engineer", "notes": ""},
+        data={"name": "Full Flow CV", "target_role": "Backend Engineer", "notes": ""},
         files={"file": ("backend_cv.pdf", b"%PDF-1.4 fake cv content", "application/pdf")},
     )
     assert r.status_code == 200
-    assert "Backend CV" in r.text
+    assert "Full Flow CV" in r.text
 
     # 2. Preference
     r = client.post("/preferences", data={"description": "Avoid defense industry", "type": "hard", "signals": "defense"})
@@ -89,10 +100,11 @@ def test_full_workflow_add_preference_company_research_draft_approve(monkeypatch
         [
             json.dumps({"channels": []}),  # channel detection
             json.dumps({"flags": []}),  # preference check - no conflict this time
+            json.dumps({"angles": []}),  # angle step (none verifiable here)
             json.dumps(
                 {
                     "target_position": "Backend Engineer",
-                    "cv_choice_name": "Backend CV",
+                    "cv_choice_name": "Full Flow CV",
                     "reasoning": "Good fit.",
                     "subject": "Application for Backend Engineer",
                     "cover_letter_body": "Dear Widgets Inc, ...",
@@ -126,7 +138,7 @@ def test_full_workflow_add_preference_company_research_draft_approve(monkeypatch
 
     # 7. Approve & send - mock the actual Gmail send
     monkeypatch.setattr(
-        review, "send_email", lambda to, subject, body_text, attachment_path=None, attachment_name=None: {"id": "m1", "threadId": "t1"}
+        review, "send_email", lambda to, subject, body_text, attachment_path=None, attachment_name=None, **kwargs: {"id": "m1", "threadId": "t1"}
     )
     r = client.post(f"/applications/{application_id}/approve", follow_redirects=True)
     assert r.status_code == 200

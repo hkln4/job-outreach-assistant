@@ -14,7 +14,8 @@ from sqlalchemy.orm import Session
 from app.applications.reply_check import check_all_awaiting, overdue_applications
 from app.companies.workflow import has_unconfirmed_hard_exclusion, has_usable_research
 from app.db import get_db
-from app.models import CV, Application, ApplicationState, Company, CompanyState, Preference, Profile
+from app.llm.call_log import cost_summary
+from app.models import CV, Application, ApplicationState, Company, CompanyState, JobPosting, PostingStatus, Preference, Profile
 from app.web.render import render
 
 router = APIRouter(tags=["dashboard"])
@@ -30,7 +31,7 @@ def _days_since(moment: datetime | None) -> int | None:
 
 
 @router.get("/")
-def dashboard(request: Request, checked: int = -1, replies: int = 0, db: Session = Depends(get_db)):
+def dashboard(request: Request, checked: int = -1, replies: int = 0, bounces: int = 0, db: Session = Depends(get_db)):
     company_counts = dict(
         db.query(Company.state, func.count(Company.id)).group_by(Company.state).all()
     )
@@ -81,11 +82,18 @@ def dashboard(request: Request, checked: int = -1, replies: int = 0, db: Session
         for application in overdue_applications(db)
     ]
 
+    new_postings = (
+        db.query(JobPosting).filter(JobPosting.status == PostingStatus.NEW).order_by(JobPosting.id.desc()).limit(20).all()
+    )
+    month_costs = cost_summary(db)["by_month"].get(datetime.now(timezone.utc).strftime("%Y-%m"))
+
     return render(
         templates,
         request,
         "dashboard.html",
         {
+            "month_cost": month_costs["cost"] if month_costs else 0.0,
+            "new_postings": new_postings,
             "total_companies": total_companies,
             "applicable_count": company_counts.get(CompanyState.APPLICABLE, 0),
             "total_applications": total_applications,
@@ -98,7 +106,7 @@ def dashboard(request: Request, checked: int = -1, replies: int = 0, db: Session
             "awaiting_count": awaiting_count,
             "overdue": overdue,
             # bulk reply-check result banner (checked == -1 means "no check just ran")
-            "check_summary": {"checked": checked, "replies": replies} if checked >= 0 else None,
+            "check_summary": {"checked": checked, "replies": replies, "bounces": bounces} if checked >= 0 else None,
         },
     )
 
@@ -108,5 +116,5 @@ def check_replies(db: Session = Depends(get_db)):
     """Bulk owner-triggered reply check over every AWAITING_REPLY application."""
     summary = check_all_awaiting(db)
     return RedirectResponse(
-        url=f"/?checked={summary['checked']}&replies={summary['replies']}", status_code=303
+        url=f"/?checked={summary['checked']}&replies={summary['replies']}&bounces={summary['bounces']}", status_code=303
     )

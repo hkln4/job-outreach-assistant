@@ -137,9 +137,11 @@ def company_detail(
 
 
 @router.post("/research")
-def run_research(company_id: int, db: Session = Depends(get_db), llm: LLMProvider = Depends(get_llm)):
+def run_research(
+    company_id: int, force: str = Form(""), db: Session = Depends(get_db), llm: LLMProvider = Depends(get_llm)
+):
     company = _company_or_404(db, company_id)
-    research_company_safe(db, llm, company)
+    research_company_safe(db, llm, company, force=bool(force))
     return RedirectResponse(url=f"/companies/{company_id}", status_code=303)
 
 

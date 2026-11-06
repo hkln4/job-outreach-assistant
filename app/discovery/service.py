@@ -15,6 +15,9 @@ from app.discovery.sources import (
     OSTIM_DIRECTORY,
     read_source,
 )
+from app.config import get_settings
+from app.discovery.extra_sources import entries_from_rows, read_github_orgs, read_json_endpoint, table_rows
+from app.discovery.liveness import check_many
 from app.llm.base import LLMProvider
 from app.models import CandidateStatus, Company, CompanyCandidate, CompanyState, DiscoverySource
 
@@ -66,10 +69,23 @@ def _candidate_key(name: str, website_url: str | None) -> tuple[str, str]:
     return (domain_of(website_url) if website_url else "", name.casefold())
 
 
-def import_source(db: Session, llm: LLMProvider, source: DiscoverySource) -> dict:
-    """Returns counts: {"found", "new", "already_in_list", "known"}."""
+def _read(llm: LLMProvider, source: DiscoverySource) -> list[dict]:
+    if source.kind == "json":
+        return read_json_endpoint(source.url, source.config or {})
+    if source.kind == "github_orgs":
+        return read_github_orgs(source.url, get_settings().github_token)
+    if source.kind == "file":
+        config = source.config or {}
+        with open(config["path"], "rb") as f:
+            return entries_from_rows(table_rows(config["path"], f.read()), config.get("mapping") or {})
+    return read_source(llm, source.kind, source.url)
+
+
+def import_source(db: Session, llm: LLMProvider, source: DiscoverySource, entries: list[dict] | None = None) -> dict:
+    """Returns counts: {"found", "new", "already_in_list", "known"}. `entries`
+    are given for file sources (parsed from the owner's upload)."""
     try:
-        entries = read_source(llm, source.kind, source.url)
+        entries = entries if entries is not None else _read(llm, source)
     except Exception as exc:  # noqa: BLE001 - shown on the source row
         source.last_error = str(exc)[:500]
         db.commit()
@@ -104,8 +120,10 @@ def import_source(db: Session, llm: LLMProvider, source: DiscoverySource) -> dic
             website_url=entry["website_url"],
             sector=entry.get("sector") or "",
             contact_email=entry.get("contact_email"),
-            city=source.city,
+            city=entry.get("city") or source.city,
             technopark=source.name,
+            # A GitHub org's newest push is a free activity signal.
+            liveness={"github": entry["github"]} if entry.get("github") else {},
         )
         db.add(candidate)
         if domain:
@@ -142,6 +160,7 @@ def approve(db: Session, candidate_ids: list[int]) -> int:
                 contact_email=candidate.contact_email,
                 state=CompanyState.APPLICABLE,
                 notes=note + ".",
+                liveness=candidate.liveness or {},
             )
             db.add(company)
             db.flush()
@@ -163,3 +182,21 @@ def reject(db: Session, candidate_ids: list[int]) -> int:
             rejected += 1
     db.commit()
     return rejected
+
+
+def check_pending_liveness(db: Session, limit: int = 40, force: bool = False) -> dict:
+    """Liveness for the next `limit` pending candidates that have a website
+    and no check yet (or all of them again with `force`). No LLM."""
+    query = db.query(CompanyCandidate).filter(
+        CompanyCandidate.status == CandidateStatus.PENDING, CompanyCandidate.website_url.isnot(None)
+    )
+    candidates = [c for c in query.order_by(CompanyCandidate.id).all() if force or not (c.liveness or {}).get("status")][:limit]
+    results = check_many([c.website_url for c in candidates])
+    counts: dict[str, int] = {}
+    for candidate in candidates:
+        result = results.get(candidate.website_url) or {}
+        candidate.liveness = {**(candidate.liveness or {}), **result}
+        counts[result.get("status", "UNKNOWN")] = counts.get(result.get("status", "UNKNOWN"), 0) + 1
+    db.commit()
+    remaining = sum(1 for c in query.all() if not (c.liveness or {}).get("status"))
+    return {"checked": len(candidates), "counts": counts, "remaining": remaining}

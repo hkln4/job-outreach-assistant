@@ -7,7 +7,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.applications.draft_review import REVIEW_SYSTEM_PROMPT
-from app.applications.drafting import DRAFT_SYSTEM_PROMPT, create_draft_application
+from app.applications.drafting import create_draft_application
 from app.config import get_settings
 from app.db import SessionLocal, init_db
 from app.main import app
@@ -100,7 +100,8 @@ def test_unknown_language_falls_back_to_no_preference():
 
 
 def _draft_prompt(llm):
-    return next(c["prompt"] for c in llm.calls if c["system"] == DRAFT_SYSTEM_PROMPT)
+    # the plain-text letter call (roadmap phase 4: angles -> letter -> metadata)
+    return next(c["prompt"] for c in llm.calls if "Output plain text only" in (c["system"] or ""))
 
 
 def test_chosen_language_reaches_the_draft_and_the_reviewer(company, monkeypatch):

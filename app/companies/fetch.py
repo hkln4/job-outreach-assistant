@@ -13,6 +13,8 @@ import httpx
 from bs4 import BeautifulSoup
 from readability import Document as ReadabilityDocument
 
+from app.channels.detect import detect_channels, merge_channels
+from app.companies.emails import extract_emails
 from app.companies.sanitize import SanitizeReport, sanitize_html, sanitize_text
 
 # Ordinary browser headers, not a bot UA: several perfectly public company
@@ -33,6 +35,12 @@ MAX_CHARS_PER_PAGE = 6000
 # keep a tail slice too.
 HEAD_SHARE = 0.7
 MIN_READABILITY_CHARS = 400
+# Readability's main article drops the footer - where addresses and phone
+# numbers usually are. The footer/contact block is appended (capped) so the
+# LLM sees that context too; the addresses themselves are found by code
+# (app/companies/emails.py).
+MAX_FOOTER_CHARS = 800
+_FOOTER_HINT_RE = re.compile(r"footer|contact|iletisim|iletişim", re.IGNORECASE)
 MAX_PAGES = 4
 
 # Strong: unambiguous signals. Weak: generic CTAs that often show up on unrelated
@@ -117,7 +125,30 @@ def _extract_main_text(html: str, report: SanitizeReport | None = None, url: str
     found, e.g. for the company page's warning."""
     report = report if report is not None else SanitizeReport()
     html = sanitize_html(html, report, url=url)
-    return sanitize_text(_readable_text(html), report, url=url)
+    text = _readable_text(html)
+    footer = _footer_block(html)
+    if footer and footer not in text:
+        text = f"{text}\n[footer/contact]\n{footer}"
+    return sanitize_text(text, report, url=url)
+
+
+def _footer_block(html: str) -> str:
+    """Text of <footer>, <address> and footer/contact-looking containers,
+    deduped and capped at MAX_FOOTER_CHARS."""
+    soup = BeautifulSoup(html, "html.parser")
+    for tag in soup(["script", "style", "noscript"]):
+        tag.decompose()
+    blocks: list[str] = []
+    candidates = soup.find_all(["footer", "address"])
+    for element in soup.find_all(attrs={"class": True}) + soup.find_all(attrs={"id": True}):
+        marker = " ".join(element.get("class") or []) + " " + (element.get("id") or "")
+        if _FOOTER_HINT_RE.search(marker) and element.name not in ("html", "body"):
+            candidates.append(element)
+    for element in candidates:
+        text = element.get_text(" ", strip=True)
+        if text and not any(text in block for block in blocks):
+            blocks = [block for block in blocks if block not in text] + [text]
+    return re.sub(r"\s+", " ", " | ".join(blocks)).strip()[:MAX_FOOTER_CHARS]
 
 
 def _readable_text(html: str) -> str:
@@ -269,7 +300,9 @@ def find_linkedin_url(website_url: str) -> str | None:
 
 
 def fetch_company_research(website_url: str, careers_url: str | None = None) -> dict:
-    """Returns {"pages": [{"url", "text"}], "detected_careers_url": str | None,
+    """Returns {"pages": [{"url", "text", "kind"}], "emails_detected":
+    [{email, context, url}], "channels_detected": [see app/channels/detect.py],
+    "detected_careers_url": str | None,
     "careers_page_thin": bool, "detected_linkedin_url": str | None,
     "content_chars": int, "content_safety": dict}. `content_safety` is the
     hidden-content report across every page kept (SanitizeReport.to_dict).
@@ -291,8 +324,10 @@ def fetch_company_research(website_url: str, careers_url: str | None = None) -> 
 
     with httpx.Client(timeout=15, follow_redirects=True, headers=BROWSER_HEADERS) as client:
 
-        def fetch_page(url: str) -> str | None:
-            """Fetch url into `pages` (deduped); returns the raw HTML, or None."""
+        def fetch_page(url: str, kind: str) -> str | None:
+            """Fetch url into `pages` (deduped); returns the raw HTML, or None.
+            `kind` (careers / about / contact / job) orders the page in every
+            prompt's context budget (app/companies/context.py)."""
             if not url.startswith(("http://", "https://")):
                 return None  # last-resort guard against unfetchable link schemes
             normalized = urldefrag(url)[0].rstrip("/")
@@ -305,7 +340,7 @@ def fetch_company_research(website_url: str, careers_url: str | None = None) -> 
             except httpx.HTTPError:
                 return None
             text = _extract_main_text(resp.text, safety, url=url)
-            pages.append({"url": url, "text": _trim_keep_head_and_tail(text, MAX_CHARS_PER_PAGE)})
+            pages.append({"url": url, "kind": kind, "text": _trim_keep_head_and_tail(text, MAX_CHARS_PER_PAGE)})
             fetched_html.append((url, resp.text))
             return resp.text
 
@@ -333,7 +368,7 @@ def fetch_company_research(website_url: str, careers_url: str | None = None) -> 
                     seen_urls.add(urldefrag(candidate)[0].rstrip("/"))
                     break
 
-        pages.append({"url": website_url, "text": _trim_keep_head_and_tail(home_text, MAX_CHARS_PER_PAGE)})
+        pages.append({"url": website_url, "kind": "home", "text": _trim_keep_head_and_tail(home_text, MAX_CHARS_PER_PAGE)})
         fetched_html.append((website_url, home_html))
         safety.merge(home_safety)
 
@@ -342,23 +377,23 @@ def fetch_company_research(website_url: str, careers_url: str | None = None) -> 
         careers_html = None
         careers_page_thin = False
         if detected_careers:
-            careers_html = fetch_page(detected_careers)
+            careers_html = fetch_page(detected_careers, "careers")
             if careers_html is not None:
                 careers_page_thin = len(pages[-1]["text"]) < THIN_CAREERS_CHARS
 
-        for url in (
-            _find_link(home_html, website_url, ABOUT_KEYWORDS_STRONG, ABOUT_KEYWORDS_WEAK),
-            _find_link(home_html, website_url, CONTACT_KEYWORDS_STRONG, CONTACT_KEYWORDS_WEAK),
+        for url, kind in (
+            (_find_link(home_html, website_url, ABOUT_KEYWORDS_STRONG, ABOUT_KEYWORDS_WEAK), "about"),
+            (_find_link(home_html, website_url, CONTACT_KEYWORDS_STRONG, CONTACT_KEYWORDS_WEAK), "contact"),
         ):
             if url and len(pages) < MAX_PAGES:
-                fetch_page(url)
+                fetch_page(url, kind)
 
         if careers_html:
             core_page_count = len(pages)
             for url in _find_job_links(careers_html, detected_careers, website_url):
                 if len(pages) >= core_page_count + MAX_JOB_PAGES:
                     break
-                fetch_page(url)
+                fetch_page(url, "job")
 
     detected_linkedin = None
     for page_url, html in fetched_html:
@@ -366,8 +401,20 @@ def fetch_company_research(website_url: str, careers_url: str | None = None) -> 
         if detected_linkedin:
             break
 
+    emails_detected: list[dict] = []
+    seen_emails: set[str] = set()
+    for page_url, html in fetched_html:
+        for entry in extract_emails(html, page_url):
+            if entry["email"] not in seen_emails:
+                seen_emails.add(entry["email"])
+                emails_detected.append(entry)
+
+    channels_detected = merge_channels(*(detect_channels(html, page_url) for page_url, html in fetched_html))
+
     return {
         "pages": pages,
+        "emails_detected": emails_detected,
+        "channels_detected": channels_detected,
         "detected_careers_url": detected_careers,
         "careers_page_thin": careers_page_thin,
         "detected_linkedin_url": detected_linkedin,

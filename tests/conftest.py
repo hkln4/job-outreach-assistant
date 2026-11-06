@@ -8,6 +8,11 @@ import tempfile
 _tmp_db = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
 os.environ["DATABASE_URL"] = f"sqlite:///{_tmp_db.name}"
 os.environ.setdefault("GEMINI_API_KEY", "test-key-not-real")
+# Sent-CV snapshots and test CV files live in a temp dir, never under data/.
+TEST_FILES_DIR = tempfile.mkdtemp(prefix="outreach-tests-")
+os.environ["SENT_CVS_DIR"] = os.path.join(TEST_FILES_DIR, "sent_cvs")
+os.environ["CV_VARIANTS_DIR"] = os.path.join(TEST_FILES_DIR, "cv_variants")
+os.environ["DISCOVERY_UPLOADS_DIR"] = os.path.join(TEST_FILES_DIR, "discovery_uploads")
 # Tests send back-to-back; the deliverability gap is exercised explicitly in
 # test_outreach.py with a patched Settings instead.
 os.environ.setdefault("SEND_DELAY_SECONDS", "0")
@@ -37,3 +42,52 @@ class _SameOriginTestClient(_StarletteTestClient):
 
 
 fastapi.testclient.TestClient = _SameOriginTestClient
+
+
+# No test may reach the real Gmail API: the OAuth flow would open a browser.
+# Tests fake Gmail at the function they exercise (send_email, classify_thread,
+# find_sent_message, ...); anything that slips through fails loudly here.
+import pytest  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def _no_real_gmail(monkeypatch):
+    import app.email_send.gmail_client as gmail_client
+
+    def _refuse():
+        raise RuntimeError("Gmail is not available in tests - fake the gmail_client function you need.")
+
+    monkeypatch.setattr(gmail_client, "get_gmail_service", _refuse)
+
+
+def make_cv_file(name: str = "cv.pdf", content: bytes = b"%PDF-1.4 test cv") -> str:
+    """A real file for a test CV (sending copies it into cv_snapshot)."""
+    path = os.path.join(TEST_FILES_DIR, name)
+    with open(path, "wb") as f:
+        f.write(content)
+    return path
+
+
+# No test may reach a real LLM either. Routes get a provider that refuses
+# unless the test overrides get_llm / get_draft_llm itself (setdefault keeps
+# a test's own override; tests that pop theirs get this one back next test).
+@pytest.fixture(autouse=True)
+def _no_real_llm():
+    from app.llm.base import LLMProvider
+    from app.main import app
+    from app.web.deps import get_draft_llm, get_llm
+
+    class _RefusingProvider(LLMProvider):
+        def generate(self, prompt, *, system=None, temperature=0.2, max_output_tokens=2048, json_schema=None):
+            raise RuntimeError("No real LLM in tests - override get_llm / get_draft_llm with a fake.")
+
+    refusing = _RefusingProvider()
+    added = []
+    for dependency in (get_llm, get_draft_llm):
+        if dependency not in app.dependency_overrides:
+            app.dependency_overrides[dependency] = lambda: refusing
+            added.append(dependency)
+    yield
+    for dependency in added:
+        if app.dependency_overrides.get(dependency) is not None and dependency in added:
+            app.dependency_overrides.pop(dependency, None)

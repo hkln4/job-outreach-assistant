@@ -23,9 +23,11 @@ from app.companies.fetch import (
     _trim_keep_head_and_tail,
 )
 from app.llm.base import LLMProvider
+from app.llm.call_log import llm_context
 from app.llm.json_utils import parse_json_object
 from app.llm.untrusted import UNTRUSTED_RULE, wrap_untrusted
 from app.models import CompanyCandidate, Preference, Profile
+from app.preferences.keywords import keyword_flags
 
 MAX_HOMEPAGE_CHARS = 4000
 
@@ -85,6 +87,7 @@ def _fetch_homepage(url: str) -> tuple[str, str]:
     return html, text
 
 
+@llm_context("discovery_triage")
 def _screen(llm: LLMProvider, prompt: str) -> TriageResult | None:
     """One retry on an unreadable answer (seen in practice: a comment written
     inside the JSON), then give up rather than guess."""
@@ -128,6 +131,9 @@ def triage_candidate(db: Session, llm: LLMProvider, candidate: CompanyCandidate)
 
     profile = db.query(Profile).first()
     preferences = db.query(Preference).all()
+    # Code first: preference keywords on the homepage text, shown as flags
+    # next to (never instead of) the screening's own judgment.
+    keyword_hits = keyword_flags(text, preferences, candidate.website_url)
     roles = ", ".join(profile.target_roles) if profile else "unknown"
     pref_lines = "\n".join(f"- id={p.id} [{p.type.value}] {p.description}" for p in preferences) or "none"
     prompt = (
@@ -138,7 +144,9 @@ def triage_candidate(db: Session, llm: LLMProvider, candidate: CompanyCandidate)
     )
     result = _screen(llm, prompt)
     if result is None:
-        return _record(db, candidate, {"fit": "unknown", "error": "Screening returned an unreadable answer."})
+        return _record(
+            db, candidate, {"fit": "unknown", "error": "Screening returned an unreadable answer.", "keyword_flags": keyword_hits}
+        )
 
     by_id = {p.id: p for p in preferences}
     flags = [
@@ -162,5 +170,6 @@ def triage_candidate(db: Session, llm: LLMProvider, candidate: CompanyCandidate)
             "fit_reason": result.fit_reason,
             "careers_page": _find_careers_link(html, candidate.website_url) is not None,
             "flags": flags,
+            "keyword_flags": keyword_hits,
         },
     )

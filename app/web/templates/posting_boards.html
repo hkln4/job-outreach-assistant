@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}{{ t("boards.title") }}{% endblock %}
+{% block content %}
+  <p><a href="/postings">← {{ t("postings.title") }}</a></p>
+  <h1>{{ t("boards.title") }}</h1>
+  <p class="hint">{{ t("boards.hint") }}</p>
+  {% if error %}<div class="warning"><p>{{ error }}</p></div>{% endif %}
+  {% if discovered %}<div class="card"><p>{{ t("boards.discovered") }} {{ discovered }}</p></div>{% endif %}
+
+  <div class="card">
+    <h2>{{ t("boards.add_title") }}</h2>
+    <form method="post" action="/postings/boards" class="inline-form">
+      <select name="provider">{% for p in providers %}<option value="{{ p }}">{{ p }}</option>{% endfor %}</select>
+      <input type="text" name="token" required placeholder="{{ t('boards.token_placeholder') }}">
+      <input type="text" name="company_name" placeholder="{{ t('boards.company_placeholder') }}">
+      <button type="submit">{{ t("common.save") }}</button>
+    </form>
+    <form method="post" action="/postings/boards/discover" data-loading-text="{{ t('loading.searching') }}">
+      <p class="hint">{{ t("boards.search_hint") }}</p>
+      <button type="submit" class="secondary" {{ "disabled" if not search_enabled }}>{{ t("boards.search_button") }}</button>
+      {% if not search_enabled %}<span class="hint">{{ t("boards.search_off") }}</span>{% endif %}
+    </form>
+  </div>
+
+  <table class="table">
+    <thead><tr><th>{{ t("boards.board") }}</th><th>{{ t("boards.found_via") }}</th><th>{{ t("boards.last_read") }}</th><th></th></tr></thead>
+    <tbody>
+      {% for b in boards %}
+      <tr>
+        <td><strong>{{ b.company_name or b.token }}</strong> <span class="badge">{{ b.provider }}</span>{% if b.company_id %} <a href="/companies/{{ b.company_id }}">{{ t("discovery.open_company") }}</a>{% endif %}<br><span class="hint">{{ b.token }}</span></td>
+        <td>{{ t("boards.via." ~ b.found_via) }}</td>
+        <td>{% if b.last_checked_at %}{{ b.last_checked_at.strftime("%Y-%m-%d") }}{% endif %}
+          {% if b.last_result %}<br><span class="hint">{% if b.last_result.error %}{{ b.last_result.error }}{% else %}{{ t("boards.imported") }} {{ b.last_result.imported }} · {{ t("boards.ambiguous") }} {{ b.last_result.ambiguous }} · {{ t("boards.rejected") }} {{ b.last_result.rejected }}{% endif %}</span>{% endif %}</td>
+        <td><form method="post" action="/postings/boards/{{ b.id }}/read" data-loading-text="{{ t('loading.checking') }}"><button type="submit" class="secondary">{{ t("boards.read") }}</button></form></td>
+      </tr>
+      {% else %}
+      <tr><td colspan="4" class="muted">{{ t("boards.empty") }}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% endblock %}

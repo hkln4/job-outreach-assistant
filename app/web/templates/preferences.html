@@ -18,6 +18,19 @@
     <button type="submit">{{ t("preferences.language.save") }}</button>
   </form>
 
+  <form class="card" method="post" action="/preferences/identity" id="identity">
+    <h2>{{ t("preferences.identity.title") }}</h2>
+    <p class="hint">{{ t("preferences.identity.hint") }}</p>
+    {% if saved %}<p>✓ {{ t("profile_item.saved") }}</p>{% endif %}
+    {% for field in identity_fields %}
+      <label>{{ t("preferences.identity." ~ field) }}
+        <input type="text" name="{{ field }}" value="{{ typed[field] }}" placeholder="{{ detected.get(field) or (t('preferences.identity.portfolio_placeholder') if field == 'portfolio_url' else '') }}">
+        {% if not typed[field] and detected.get(field) %}<span class="hint">{{ t("preferences.identity.from_cv") }}</span>{% endif %}
+      </label>
+    {% endfor %}
+    <button type="submit">{{ t("common.save") }}</button>
+  </form>
+
   <form class="card" method="post" action="/preferences">
     <h2>{{ t("preferences.add_title") }}</h2>
     <label>{{ t("common.description") }}

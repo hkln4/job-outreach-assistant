@@ -19,12 +19,15 @@ from app.web.routes import (
     applications,
     company_detail,
     companies,
+    costs,
     cvs,
     dashboard,
     discovery,
     lang,
+    postings,
     preferences,
     profile,
+    style,
 )
 from app.web.security import cross_site_reason, host_is_allowed
 
@@ -87,6 +90,9 @@ app.include_router(company_detail.router)
 app.include_router(discovery.router)
 app.include_router(cvs.router)
 app.include_router(applications.router)
+app.include_router(costs.router)
+app.include_router(postings.router)
+app.include_router(style.router)
 
 
 if __name__ == "__main__":

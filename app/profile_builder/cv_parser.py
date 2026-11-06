@@ -1,5 +1,6 @@
 """CV / LinkedIn-export ingestion (CLAUDE.md section 3): each uploaded PDF/docx file
-is one item, parsed in full - the app enumerates and processes, never skims."""
+is parsed in full and split into one record per entry - the app enumerates and
+processes, never skims."""
 from pathlib import Path
 
 from docx import Document
@@ -8,8 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.llm.base import LLMProvider
 from app.models import ProfileItem
-from app.profile_builder.coverage import record_item
-from app.profile_builder.extraction import EXTRACTION_FALLBACK, safe_extract_item
+from app.profile_builder.entries import ingest_document_entries
 
 
 def extract_text(file_path: str) -> str:
@@ -40,10 +40,8 @@ def try_extract_text(file_path: str) -> tuple[str | None, str | None]:
         return None, str(exc)
 
 
-def ingest_cv(db: Session, llm: LLMProvider, file_path: str) -> ProfileItem:
+def ingest_cv(db: Session, llm: LLMProvider, file_path: str) -> list[ProfileItem]:
+    """One record per CV entry (role, education, project...) - see
+    app/profile_builder/entries.py."""
     text, error = try_extract_text(file_path)
-    if error is not None:
-        extracted = {**EXTRACTION_FALLBACK, "parse_error": error}
-    else:
-        extracted = safe_extract_item(llm, text)
-    return record_item(db, source_type="cv", source_ref=file_path, extracted=extracted, source_urls=[])
+    return ingest_document_entries(db, llm, file_path, text, error, "cv")

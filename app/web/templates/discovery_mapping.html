@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}{{ t("discovery.mapping_title") }}{% endblock %}
+{% block content %}
+  <p><a href="/discovery">← {{ t("nav.discovery") }}</a></p>
+  <h1>{{ t("discovery.mapping_title") }}</h1>
+  <p class="hint">{{ source.name }} · {{ row_count }} {{ t("discovery.mapping_rows") }}</p>
+  <form method="post" action="/discovery/files/{{ source.id }}/mapping" data-loading-text="{{ t('discovery.importing') }}">
+    <div class="card">
+      {% for field in fields %}
+        <label>{{ t("discovery.mapping_field." ~ field) }}
+          <select name="{{ field }}">
+            <option value="">—</option>
+            {% for h in headers %}<option value="{{ h }}" {% if source.config.mapping.get(field) == h %}selected{% endif %}>{{ h }}</option>{% endfor %}
+          </select>
+        </label>
+      {% endfor %}
+      <button type="submit">{{ t("discovery.import_button") }}</button>
+    </div>
+  </form>
+  {% if preview %}
+  <table class="table">
+    <thead><tr>{% for h in headers %}<th>{{ h }}</th>{% endfor %}</tr></thead>
+    <tbody>{% for row in preview %}<tr>{% for h in headers %}<td>{{ row[h] }}</td>{% endfor %}</tr>{% endfor %}</tbody>
+  </table>
+  {% endif %}
+{% endblock %}

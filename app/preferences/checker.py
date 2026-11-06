@@ -7,6 +7,7 @@ from typing import Literal
 from pydantic import BaseModel
 
 from app.llm.base import LLMProvider
+from app.llm.call_log import llm_context
 from app.llm.json_utils import parse_json_object
 from app.llm.untrusted import UNTRUSTED_RULE, wrap_untrusted
 from app.models import Preference
@@ -38,7 +39,15 @@ class CheckAnswer(BaseModel):
     flags: list[_Flag]
 
 
+# Budget for the company text; callers build it with
+# app/companies/context.py so job pages aren't the part that gets cut.
+PREFERENCE_CONTEXT_CHARS = 24000
+
+
+@llm_context("preference_check")
 def check_company(llm: LLMProvider, company_text: str, preferences: list[Preference]) -> list[dict]:
+    """`company_text` is already budgeted (build_company_context with
+    PREFERENCE_CONTEXT_CHARS) - it is sent whole, never sliced here."""
     if not preferences:
         return []
 
@@ -46,7 +55,7 @@ def check_company(llm: LLMProvider, company_text: str, preferences: list[Prefere
         f"- id={p.id} [{p.type.value}] {p.description} (signals: {', '.join(p.signals) or 'none'})"
         for p in preferences
     )
-    prompt = f"OWNER PREFERENCES:\n{pref_list}\n\nCOMPANY TEXT:\n{wrap_untrusted(company_text[:24000])}"
+    prompt = f"OWNER PREFERENCES:\n{pref_list}\n\nCOMPANY TEXT:\n{wrap_untrusted(company_text)}"
 
     response = llm.generate(
         prompt=prompt,

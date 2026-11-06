@@ -41,7 +41,8 @@ def test_gemini_provider_constructs_with_key(monkeypatch):
     get_llm_provider.cache_clear()
 
     provider = get_llm_provider()
-    assert provider.__class__.__name__ == "GeminiProvider"
+    # every provider is wrapped for cost logging (app/llm/call_log.py)
+    assert provider.inner.__class__.__name__ == "GeminiProvider"
 
     get_settings.cache_clear()
     get_llm_provider.cache_clear()

@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 from app.db import SessionLocal, init_db
 from app.main import app
 from app.models import CV, ProfileItem, ProfileItemStatus
-from app.web.deps import get_llm
+from app.web.deps import get_draft_llm, get_llm
 from tests.fakes import FakeLLMProvider
 
 
@@ -16,6 +16,7 @@ def setup_module():
 
 def teardown_module():
     app.dependency_overrides.pop(get_llm, None)
+    app.dependency_overrides.pop(get_draft_llm, None)
 
 
 def test_retry_reingests_a_failed_item_and_removes_the_old_one(tmp_path):
@@ -48,14 +49,16 @@ def test_retry_reingests_a_failed_item_and_removes_the_old_one(tmp_path):
     fake_llm = FakeLLMProvider(
         json.dumps(
             {
-                "purpose": "Backend engineer CV",
-                "stack": ["Python"],
-                "role": "Backend Engineer",
-                "highlights": ["Real extraction this time"],
+                "entries": [
+                    {"entry_type": "experience", "title": "Backend engineer", "organization": "", "start": "", "end": "",
+                     "location": "", "bullets": ["Backend engineer with Python experience."], "stack": ["Python"],
+                     "purpose": "Backend engineer CV"}
+                ]
             }
         )
     )
     app.dependency_overrides[get_llm] = lambda: fake_llm
+    app.dependency_overrides[get_draft_llm] = lambda: fake_llm
 
     client = TestClient(app)
     r = client.post(f"/profile/items/{item_id}/retry", follow_redirects=True)
@@ -66,7 +69,9 @@ def test_retry_reingests_a_failed_item_and_removes_the_old_one(tmp_path):
         # exactly one row for this source now, and it's the successful re-ingest -
         # NOT asserting the old id is gone: SQLite reuses rowids once a table
         # empties, so a fresh row can legitimately land back on the same id.
-        current_items = db.query(ProfileItem).filter(ProfileItem.source_ref == str(cv_path)).all()
+        # the failed whole-file record is replaced by the file's entry records
+        assert db.query(ProfileItem).filter(ProfileItem.source_ref == str(cv_path)).count() == 0
+        current_items = db.query(ProfileItem).filter(ProfileItem.parent_ref == str(cv_path)).all()
         assert len(current_items) == 1
         assert current_items[0].status == ProfileItemStatus.ANALYZED
         assert current_items[0].extracted["stack"] == ["Python"]

@@ -53,6 +53,27 @@ _COLUMN_MIGRATIONS = [
     ("applications", "excluded_evidence_ids", "JSON DEFAULT '[]'"),
     ("company_candidates", "sector", "VARCHAR DEFAULT ''"),
     ("company_candidates", "contact_email", "VARCHAR"),
+    ("companies", "invalid_emails", "JSON DEFAULT '[]'"),
+    ("applications", "rfc_message_id", "VARCHAR"),
+    ("applications", "sent_to", "VARCHAR"),
+    ("applications", "cv_snapshot", "JSON DEFAULT '{}'"),
+    ("applications", "notes", "JSON DEFAULT '[]'"),
+    ("profile_items", "facts", "JSON DEFAULT '{}'"),
+    ("profile_items", "source_version", "JSON DEFAULT '{}'"),
+    ("profile_items", "owner_facts", "JSON DEFAULT '[]'"),
+    ("profile_items", "owner_edited_fields", "JSON DEFAULT '[]'"),
+    ("profile_items", "pending_update", "JSON DEFAULT '{}'"),
+    ("profile_items", "parent_ref", "VARCHAR"),
+    ("profiles", "writeup", "TEXT DEFAULT ''"),
+    ("profiles", "writeup_generated_at", "DATETIME"),
+    ("profiles", "writeup_unknown_tags", "JSON DEFAULT '[]'"),
+    ("company_candidates", "liveness", "JSON DEFAULT '{}'"),
+    ("companies", "liveness", "JSON DEFAULT '{}'"),
+    ("discovery_sources", "config", "JSON DEFAULT '{}'"),
+    ("applications", "job_posting_id", "INTEGER REFERENCES job_postings(id)"),
+    ("applications", "channel", "VARCHAR DEFAULT 'email'"),
+    *[("owner_settings", column, "VARCHAR DEFAULT ''") for column in (
+        "full_name", "title", "email", "phone", "city", "linkedin_url", "github_url", "portfolio_url")],
 ]
 
 

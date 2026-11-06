@@ -16,6 +16,7 @@ def get_draft_llm() -> LLMProvider:
 
 
 def get_review_llm() -> LLMProvider | None:
-    """The reviewer pass on drafts runs on the cheap reading model; None when
+    """The reviewer pass on drafts runs on the draft model (roadmap phase 4:
+    language/tone is where the reading model was weak); None when
     DRAFT_REVIEW_ENABLED is off, so no provider is even built."""
-    return get_llm_provider() if get_settings().draft_review_enabled else None
+    return get_draft_llm_provider() if get_settings().draft_review_enabled else None

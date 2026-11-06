@@ -80,7 +80,13 @@
     <p><strong>{{ t("draft_review.title") }}</strong>{% if draft_review.overall %} <span class="muted">{{ draft_review.overall }}</span>{% endif %}</p>
     <ul class="draft-review">
       {% for issue in review_issues %}
-      <li><span class="badge badge-soft">{{ t("draft_review.kind." ~ issue.kind) }}</span> <q>{{ issue.quote }}</q> - {{ issue.suggestion }}</li>
+      <li><span class="badge badge-soft">{{ t("draft_review.kind." ~ issue.kind) }}</span> <q>{{ issue.quote }}</q>
+        {% if issue.replacement is defined %} → <q>{{ issue.replacement or t("draft_review.delete") }}</q>{% endif %} - {{ issue.suggestion }}
+        {% if issue.applied %}<span class="badge badge-state">{{ t("draft_review.applied") }}</span>
+        {% elif issue.stale %}<span class="badge">{{ t("draft_review.stale") }}</span>
+        {% elif issue.replacement is defined and application.state.value == "PENDING_APPROVAL" %}
+          <form method="post" action="/applications/{{ application.id }}/review-edits/{{ loop.index0 }}" style="display:inline"><button type="submit" class="secondary">{{ t("draft_review.apply") }}</button></form>
+        {% endif %}</li>
       {% endfor %}
     </ul>
     <form method="post" action="/applications/{{ application.id }}/reject" data-loading-text="{{ t('loading.regenerating') }}">
@@ -91,6 +97,29 @@
     <p class="muted">{{ t("draft_review.failed") }} {{ draft_review.error }}</p>
     {% endif %}
   </div>
+  {% endif %}
+
+  {% set notes0 = (application.revision_history or [{}])[0] %}
+  {% if application.state.value == "PENDING_APPROVAL" and notes0.angles %}
+  <details class="section card" id="angles" {% if notes0.angles | length > 1 %}open{% endif %}>
+    <summary>{{ t("angles.title") }} ({{ notes0.angles | length }})</summary>
+    <p class="hint">{{ t("angles.hint") }}</p>
+    {% for angle in notes0.angles %}
+      <div class="evidence">
+        {% if loop.index0 == (notes0.angle_index or 0) %}<span class="badge badge-state">{{ t("angles.current") }}</span>{% endif %}
+        <q>{{ angle.company_hook }}</q> <a href="{{ angle.hook_url }}" target="_blank" rel="noopener">↗</a>
+        <br>{{ angle.bridge }} <span class="muted">· E{{ angle.owner_evidence_id }} · {{ angle.position }}</span>
+        {% if loop.index0 != (notes0.angle_index or 0) %}
+        <form method="post" action="/applications/{{ application.id }}/angle" data-loading-text="{{ t('loading.regenerating') }}">
+          <input type="hidden" name="angle_index" value="{{ loop.index0 }}">
+          <button type="submit" class="secondary">{{ t("angles.use") }}</button>
+        </form>
+        {% endif %}
+      </div>
+    {% endfor %}
+    {% if notes0.recipient_kind and notes0.recipient_kind != "general" %}<p class="hint">{{ t("angles.recipient") }} {{ t("recipient." ~ notes0.recipient_kind) }}</p>{% endif %}
+    {% if notes0.project_page %}<p class="hint">{{ t("angles.project_page") }} <a href="{{ notes0.project_page }}" target="_blank" rel="noopener">{{ notes0.project_page }}</a></p>{% endif %}
+  </details>
   {% endif %}
 
   {% if not application.cover_letter_body %}
@@ -198,6 +227,7 @@
   {% if application.gmail_thread_id %}
   <div class="section card">
     <h2>{{ t("application_detail.reply_check_title") }}</h2>
+    {% include "_application_notes.html" %}
     {% if application.last_checked_at %}
       <p class="hint">{{ t("application_detail.last_checked") }} {{ application.last_checked_at.strftime("%Y-%m-%d %H:%M") }} UTC · {{ t("application_detail.auto_check_hint") }}</p>
     {% endif %}
@@ -238,6 +268,13 @@
   </div>
   {% endif %}
 
+  {% if application.cover_letter_body and application.state.value not in ("DRAFT",) %}
+  <form method="post" action="/applications/{{ application.id }}/good-example" class="section">
+    {% if is_good_example %}<span class="badge badge-state">{{ t("style.is_example") }}</span>
+    {% else %}<button type="submit" class="secondary">{{ t("style.mark_example") }}</button>{% endif %}
+  </form>
+  {% endif %}
+
   {% if application.state.value != "PENDING_APPROVAL" %}
   <details class="section">
     <summary>{{ t("application_detail.state_override_title") }}</summary>
@@ -255,7 +292,15 @@
   <details class="section">
     <summary>{{ t("application_detail.revision_history_title") }}</summary>
     {% for rev in application.revision_history[1:] %}
-      <div class="evidence"><strong>{{ t("application_detail.feedback_label") }}</strong> {{ rev.feedback }}</div>
+      {% if rev.feedback %}
+      <div class="evidence"><strong>{{ t("application_detail.feedback_label") }}</strong> {{ rev.feedback }}
+        <form method="post" action="/applications/{{ application.id }}/style-note" style="display:inline">
+          <input type="hidden" name="text" value="{{ rev.feedback }}">
+          <button type="submit" class="secondary" title="{{ t('style.promote_hint') }}">{{ t("style.promote") }}</button>
+        </form></div>
+      {% elif rev.edit_diff %}
+      <details class="evidence"><summary>{{ t("style.edit_diff") }}{% if rev.review_edit %} ({{ t("draft_review.applied") }}){% endif %}</summary><pre class="facts">{{ rev.edit_diff }}</pre></details>
+      {% endif %}
     {% endfor %}
   </details>
   {% endif %}

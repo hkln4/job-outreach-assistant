@@ -10,6 +10,7 @@ from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
+from app.config import get_settings
 from app.db import get_db
 from app.models import CV
 from app.web.files import unique_stored_filename
@@ -18,7 +19,6 @@ from app.web.render import render
 router = APIRouter(prefix="/cvs", tags=["cvs"])
 templates = Jinja2Templates(directory="app/web/templates")
 
-CV_VARIANTS_DIR = "data/cv_variants"
 # What cv_parser can read and what a recruiter expects as an attachment.
 ALLOWED_CV_SUFFIXES = (".pdf", ".docx")
 MAX_CV_BYTES = 10 * 1024 * 1024
@@ -50,8 +50,9 @@ def create_cv(
     if not content:
         return RedirectResponse(url="/cvs?error=empty", status_code=303)
 
-    os.makedirs(CV_VARIANTS_DIR, exist_ok=True)
-    file_path = os.path.join(CV_VARIANTS_DIR, unique_stored_filename(name, suffix))
+    variants_dir = get_settings().cv_variants_dir
+    os.makedirs(variants_dir, exist_ok=True)
+    file_path = os.path.join(variants_dir, unique_stored_filename(name, suffix))
     with open(file_path, "wb") as f:
         f.write(content)
 

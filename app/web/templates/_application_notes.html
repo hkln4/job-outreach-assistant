@@ -1,0 +1,48 @@
+{# Reply-check findings that aren't a reply (auto-replies, possible replies
+   outside the thread), the bounce panel, and the exact CV that was sent. #}
+{% if application.state.value == "BOUNCED" %}
+  <div class="warning">
+    <strong>⚠ {{ t("application_detail.bounced_title") }}</strong>
+    <p>{{ t("application_detail.bounced_body") }} <code>{{ application.sent_to }}</code></p>
+    {% if alternative_emails %}
+      <p>{{ t("application_detail.bounced_try_next") }}</p>
+      {% for address in alternative_emails %}
+        <form method="post" action="/applications/{{ application.id }}/resend" class="inline-form">
+          <input type="hidden" name="to" value="{{ address.email }}">
+          <button type="submit" class="secondary">{{ t("application_detail.button.resend_to") }} {{ address.email }}</button>
+          {% if address.context %}<span class="muted">{{ address.context }}</span>{% endif %}
+        </form>
+      {% endfor %}
+    {% else %}
+      <p class="hint">{{ t("application_detail.bounced_no_alternative") }}</p>
+    {% endif %}
+  </div>
+{% endif %}
+
+{% set possible = (application.notes or []) | selectattr("kind", "equalto", "possible_reply") | list %}
+{% if possible and application.state.value == "AWAITING_REPLY" %}
+  <div class="warning">
+    <strong>{{ t("application_detail.possible_reply_title") }}</strong>
+    <p class="hint">{{ t("application_detail.possible_reply_hint") }}</p>
+    <ul>
+      {% for note in possible %}<li>{{ note.detail }}{% if note.date %} <span class="muted">({{ note.date }})</span>{% endif %}</li>{% endfor %}
+    </ul>
+    <form method="post" action="/applications/{{ application.id }}/state">
+      <input type="hidden" name="state" value="REPLIED">
+      <button type="submit">{{ t("application_detail.button.confirm_reply") }}</button>
+    </form>
+  </div>
+{% endif %}
+
+{% set other_notes = (application.notes or []) | rejectattr("kind", "equalto", "possible_reply") | list %}
+{% if other_notes %}
+  <ul class="link-list">
+    {% for note in other_notes %}
+      <li><span class="badge">{{ t("application_detail.note." ~ note.kind) }}</span> {{ note.detail }} <span class="muted">{{ (note.at or "")[:16] | replace("T", " ") }}</span></li>
+    {% endfor %}
+  </ul>
+{% endif %}
+
+{% if application.cv_snapshot and application.cv_snapshot.sha256 %}
+  <p class="hint">{{ t("application_detail.cv_snapshot") }} <code>{{ application.cv_snapshot.name }}</code> · sha256 {{ application.cv_snapshot.sha256[:12] }}…</p>
+{% endif %}

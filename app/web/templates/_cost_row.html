@@ -1,0 +1,3 @@
+<td class="cell-nowrap">{{ row.calls }}</td>
+<td class="cell-nowrap">{{ "{:,}".format(row.input_tokens) }} / {{ "{:,}".format(row.output_tokens) }}</td>
+<td class="cell-nowrap">${{ "%.4f"|format(row.cost) }}{% if row.unpriced_tokens %} <span class="muted">+ {{ "{:,}".format(row.unpriced_tokens) }} {{ t("costs.unpriced") }}</span>{% endif %}</td>

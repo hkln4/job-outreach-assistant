@@ -20,6 +20,27 @@ def _is_rate_limit_error(exc: Exception) -> bool:
     return getattr(exc, "status_code", None) == 429
 
 
+def _usage_tokens(interaction) -> tuple[int, int]:
+    """(input, output) tokens from an interaction's usage block. Read
+    defensively - the field names have moved between SDK versions, and a cost
+    log must never break a call."""
+    usage = getattr(interaction, "usage", None) or getattr(interaction, "usage_metadata", None)
+    if usage is None:
+        return 0, 0
+
+    def first(*names: str) -> int:
+        for name in names:
+            value = getattr(usage, name, None)
+            if isinstance(value, int):
+                return value
+        return 0
+
+    return (
+        first("total_input_tokens", "input_tokens", "prompt_token_count"),
+        first("total_output_tokens", "output_tokens", "candidates_token_count"),
+    )
+
+
 class GeminiProvider(LLMProvider):
     def __init__(self, api_key: str, model: str):
         if not api_key:
@@ -57,11 +78,14 @@ class GeminiProvider(LLMProvider):
                     generation_config=generation_config,
                     **structured,
                 )
+                input_tokens, output_tokens = _usage_tokens(interaction)
                 return LLMResponse(
                     text=interaction.output_text,
                     model=self._model,
                     provider="gemini",
                     raw=None,
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
                 )
             except Exception as exc:
                 is_last_attempt = attempt == MAX_RETRIES - 1

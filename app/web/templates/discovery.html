@@ -32,6 +32,7 @@
             </form>
             {% if stats[s.id].unscreened %}
             <a class="button-link" href="/discovery/triage/step?source_id={{ s.id }}">{{ t("discovery.screen_button") }}</a>
+            {% if stats[s.id].dead %}<span class="hint cell-line">{{ stats[s.id].dead }} {{ t("discovery.dead_skipped") }} <a href="/discovery/triage/step?source_id={{ s.id }}&include_dead=1">{{ t("discovery.screen_anyway") }}</a></span>{% endif %}
             {% endif %}
           </td>
         </tr>
@@ -42,12 +43,59 @@
       <summary>{{ t("discovery.add_source") }}</summary>
       <p class="hint">{{ t("discovery.add_source_hint") }}</p>
       <form method="post" action="/discovery/sources" class="inline-form">
+        <input type="hidden" name="kind" value="html">
         <input type="text" name="name" required placeholder="{{ t('discovery.field.name') }}">
         <input type="text" name="city" placeholder="{{ t('discovery.field.city') }}">
         <input type="url" name="url" required placeholder="https://...">
         <button type="submit">{{ t("common.save") }}</button>
       </form>
     </details>
+    <details>
+      <summary>{{ t("discovery.add_json") }}</summary>
+      <p class="hint">{{ t("discovery.add_json_hint") }}</p>
+      <form method="post" action="/discovery/sources" class="inline-form">
+        <input type="hidden" name="kind" value="json">
+        <input type="text" name="name" required placeholder="{{ t('discovery.field.name') }}">
+        <input type="text" name="city" placeholder="{{ t('discovery.field.city') }}">
+        <input type="url" name="url" required placeholder="https://.../api/firms">
+        <input type="text" name="items_path" placeholder="{{ t('discovery.field.items_path') }}">
+        <input type="text" name="name_field" placeholder="{{ t('discovery.field.name_field') }}">
+        <input type="text" name="website_field" placeholder="{{ t('discovery.field.website_field') }}">
+        <input type="text" name="email_field" placeholder="{{ t('discovery.field.email_field') }}">
+        <input type="text" name="sector_field" placeholder="{{ t('discovery.field.sector_field') }}">
+        <button type="submit">{{ t("common.save") }}</button>
+      </form>
+    </details>
+    <details>
+      <summary>{{ t("discovery.add_file") }}</summary>
+      <p class="hint">{{ t("discovery.add_file_hint") }}</p>
+      <form method="post" action="/discovery/files" enctype="multipart/form-data" class="inline-form">
+        <input type="text" name="name" required placeholder="{{ t('discovery.field.list_name') }}">
+        <input type="text" name="city" placeholder="{{ t('discovery.field.city') }}">
+        <input type="file" name="file" accept=".csv,.xlsx" required>
+        <button type="submit">{{ t("discovery.upload") }}</button>
+      </form>
+    </details>
+    <details>
+      <summary>{{ t("discovery.add_github") }}</summary>
+      <p class="hint">{{ t("discovery.add_github_hint") }}</p>
+      <form method="post" action="/discovery/sources" class="inline-form">
+        <input type="hidden" name="kind" value="github_orgs">
+        <input type="text" name="name" required placeholder="{{ t('discovery.field.name') }}" value="GitHub orgs">
+        <input type="text" name="location" required placeholder="Ankara">
+        <button type="submit">{{ t("common.save") }}</button>
+      </form>
+    </details>
+  </div>
+
+  <div class="card">
+    <h2>{{ t("discovery.liveness_title") }}</h2>
+    <p class="hint">{{ t("discovery.liveness_hint") }}</p>
+    {% if unchecked_liveness %}
+      <a class="button-link" href="/discovery/liveness/step">{{ t("discovery.liveness_button") }} ({{ unchecked_liveness }})</a>
+    {% else %}
+      <p class="muted">{{ t("discovery.liveness_all_checked") }}</p>
+    {% endif %}
   </div>
 
   <form method="get" action="/discovery" class="inline-form">
@@ -63,6 +111,12 @@
     </select>
     <select name="status">
       {% for st in statuses %}<option value="{{ st.value }}" {% if filter_status == st.value %}selected{% endif %}>{{ t("discovery.status." ~ st.value) }}</option>{% endfor %}
+    </select>
+    <select name="live">
+      <option value="">{{ t("discovery.live.any") }}</option>
+      {% for st in ("ALIVE", "STALE", "UNKNOWN", "DEAD", "unchecked") %}
+      <option value="{{ st }}" {% if filter_live == st %}selected{% endif %}>{{ t("discovery.live." ~ st) }}</option>
+      {% endfor %}
     </select>
     <label><input type="checkbox" name="hide_hard" value="1" {% if filter_hide_hard %}checked{% endif %}> {{ t("discovery.hide_hard") }}</label>
     <button type="submit" class="secondary">{{ t("discovery.filter") }}</button>
@@ -110,6 +164,12 @@
             {% if tr.sector %}<br><span class="hint">{{ tr.sector }}</span>{% endif %}
             {% if c.sector %}<br><span class="hint">{{ t("discovery.directory_sector") }} {{ c.sector }}</span>{% endif %}
             {% if tr.error %}<span class="muted">{{ tr.error }}</span>{% endif %}
+            {% for f in tr.keyword_flags or [] %}
+            <div class="evidence">
+              <span class="badge {{ 'badge-hard' if f.type == 'hard' else 'badge-soft' }}">{{ t("discovery.keyword_hit") }} "{{ f.keyword }}"</span>
+              "{{ f.evidence_snippet }}"
+            </div>
+            {% endfor %}
             {% for f in tr.flags or [] %}
             <div class="evidence">
               <span class="badge {{ 'badge-hard' if f.type == 'hard' else 'badge-soft' }}">{{ f.description }}</span>
@@ -118,6 +178,13 @@
             {% endfor %}
           </td>
           <td>
+            {% set lv = c.liveness or {} %}
+            {% if lv.status %}
+              <span class="badge {{ 'badge-hard' if lv.status == 'DEAD' else ('badge-soft' if lv.status in ('STALE', 'UNKNOWN') else 'badge-state') }}" title="{% for sg in lv.signals or [] %}{{ sg.name }}: {{ sg.value }}{% if sg.evidence %} ({{ sg.evidence }}){% endif %}&#10;{% endfor %}">{{ t("discovery.live." ~ lv.status) }}</span>
+              {% for sg in lv.signals or [] %}{% if sg.name in ("newest_activity", "parked", "redirected_to_other_domain", "http_status", "dns", "connection") and (sg.name != "http_status" or sg.value >= 400) and (sg.name != "dns" or sg.value != "resolves") %}<br><span class="hint">{{ t("discovery.signal." ~ sg.name) }}: {{ sg.evidence or sg.value }}</span>{% endif %}{% endfor %}
+              <br>
+            {% endif %}
+            {% if lv.github and lv.github.newest_push %}<span class="hint">{{ t("discovery.github_push") }} {{ lv.github.newest_push[:10] }}</span><br>{% endif %}
             {% if c.triaged_at %}
               <span class="badge {{ 'badge-state' if tr.fit == 'high' else '' }}">{{ t("discovery.fit." ~ (tr.fit or "unknown")) }}</span>
               {% if tr.careers_page %}<br><span class="badge badge-soft">{{ t("discovery.careers_page") }}</span>{% endif %}
