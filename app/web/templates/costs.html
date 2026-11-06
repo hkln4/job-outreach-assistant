@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% block title %}{{ t("costs.title") }}{% endblock %}
+{% block content %}
+  <h1>{{ t("costs.title") }}</h1>
+  <p class="hint">{{ t("costs.hint") }}</p>
+
+  <div class="card">
+    <h2>{{ t("costs.total") }}</h2>
+    <p>
+      ${{ "%.4f"|format(summary.total.cost) }} · {{ summary.total.calls }} {{ t("costs.calls") }}
+      {% if summary.total.errors %} · {{ summary.total.errors }} {{ t("costs.failed") }}{% endif %}
+      {% if summary.total.unpriced_tokens %} · {{ "{:,}".format(summary.total.unpriced_tokens) }} {{ t("costs.unpriced") }}{% endif %}
+    </p>
+  </div>
+
+  {% set head %}
+    <th>{{ t("costs.calls") }}</th><th>{{ t("costs.tokens") }}</th><th>{{ t("costs.cost") }}</th>
+  {% endset %}
+
+  <div class="section card">
+    <h2>{{ t("costs.by_month") }}</h2>
+    <table class="table">
+      <thead><tr><th>{{ t("costs.month") }}</th>{{ head }}</tr></thead>
+      <tbody>
+        {% for month, row in summary.by_month.items() %}
+        <tr><td>{{ month }}</td>{% include "_cost_row.html" %}</tr>
+        {% else %}
+        <tr><td colspan="4" class="muted">{{ t("costs.empty") }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="section card">
+    <h2>{{ t("costs.by_purpose") }}</h2>
+    <table class="table">
+      <thead><tr><th>{{ t("costs.purpose") }}</th>{{ head }}</tr></thead>
+      <tbody>
+        {% for purpose, row in summary.by_purpose.items() %}
+        <tr><td><code>{{ purpose }}</code></td>{% include "_cost_row.html" %}</tr>
+        {% else %}
+        <tr><td colspan="4" class="muted">{{ t("costs.empty") }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="section card">
+    <h2>{{ t("costs.by_company") }}</h2>
+    <table class="table">
+      <thead><tr><th>{{ t("applications.table.company") }}</th>{{ head }}</tr></thead>
+      <tbody>
+        {% for name, company_id, row in top_companies %}
+        <tr><td><a href="/companies/{{ company_id }}">{{ name }}</a></td>{% include "_cost_row.html" %}</tr>
+        {% else %}
+        <tr><td colspan="4" class="muted">{{ t("costs.empty") }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="section card">
+    <h2>{{ t("costs.by_application") }}</h2>
+    <table class="table">
+      <thead><tr><th>{{ t("company_detail.table.position") }}</th>{{ head }}</tr></thead>
+      <tbody>
+        {% for application, application_id, row in top_applications %}
+        <tr>
+          <td><a href="/applications/{{ application_id }}">{{ (application.company.name ~ " - " ~ (application.target_position or t("common.untitled"))) if application else "#" ~ application_id }}</a></td>
+          {% include "_cost_row.html" %}
+        </tr>
+        {% else %}
+        <tr><td colspan="4" class="muted">{{ t("costs.empty") }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% endblock %}

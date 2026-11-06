@@ -16,7 +16,9 @@ from dataclasses import dataclass, field
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from app.applications.synonyms import concepts_in, tokens
 from app.llm.base import LLMProvider
+from app.llm.call_log import llm_context
 from app.llm.json_utils import parse_json_object
 from app.llm.untrusted import UNTRUSTED_RULE, wrap_untrusted
 from app.models import Company, ProfileItem, ProfileItemStatus
@@ -25,9 +27,12 @@ logger = logging.getLogger("app.evidence")
 
 MAX_EVIDENCE = 8
 MAX_PURPOSE_CHARS = 160
-MAX_STACK_IN_INDEX = 6
+MAX_STACK_IN_INDEX = 10
+# Code pre-rank keeps this many records for the model to rank (section 8:
+# deterministic first, the LLM only sees what survives).
+PRE_RANK_LIMIT = 20
 # Per-record budget in the drafting prompt (cost discipline, section 8).
-MAX_RECORD_CHARS = 1500
+MAX_RECORD_CHARS = 2500
 
 SELECT_SYSTEM_PROMPT = f"""You are choosing which of a job applicant's background records \
 are the strongest evidence for an application to one company.
@@ -67,11 +72,57 @@ class EvidenceSelection:
     error: str = ""
 
 
+def record_stack(item: ProfileItem) -> list[str]:
+    """The deterministic stack when the record has facts, else the record's own."""
+    return list((item.facts or {}).get("stack") or (item.extracted or {}).get("stack") or [])
+
+
+def record_title(item: ProfileItem) -> str:
+    extracted = item.extracted or {}
+    if extracted.get("one_liner"):
+        return extracted["one_liner"]
+    if extracted.get("entry_type"):
+        dates = " - ".join(part for part in (extracted.get("start"), extracted.get("end")) if part)
+        return f"{extracted.get('entry_type')}: {extracted.get('role', '')}" + (f" ({dates})" if dates else "")
+    return extracted.get("purpose") or "unknown"
+
+
 def _index_line(item: ProfileItem) -> str:
     extracted = item.extracted or {}
-    stack = ", ".join((extracted.get("stack") or [])[:MAX_STACK_IN_INDEX]) or "unknown"
-    purpose = (extracted.get("purpose") or "unknown")[:MAX_PURPOSE_CHARS]
-    return f"E{item.id} | {item.source_type} | {item.source_ref} | stack: {stack} | {purpose}"
+    stack = ", ".join(record_stack(item)[:MAX_STACK_IN_INDEX]) or "unknown"
+    domains = ", ".join(extracted.get("domains") or [])
+    line = f"E{item.id} | {item.source_type} | {item.source_ref} | {record_title(item)[:MAX_PURPOSE_CHARS]} | stack: {stack}"
+    return line + (f" | domains: {domains}" if domains else "")
+
+
+def _record_text(item: ProfileItem) -> str:
+    """Everything the pre-rank may match on."""
+    extracted = item.extracted or {}
+    parts = [record_title(item), extracted.get("purpose", ""), extracted.get("problem", ""), extracted.get("approach", "")]
+    parts += record_stack(item) + list(extracted.get("domains") or []) + list(extracted.get("bullets") or [])
+    parts += [use.get("tech", "") + " " + use.get("for", "") for use in extracted.get("stack_used_for") or []]
+    parts += [fact.get("answer", "") for fact in item.owner_facts or []]
+    return " ".join(str(p) for p in parts if p)
+
+
+def pre_rank(candidates: list[ProfileItem], query: str, limit: int = PRE_RANK_LIMIT) -> list[ProfileItem]:
+    """Cheap lexical + concept overlap (bilingual synonym table), no LLM.
+    CV/LinkedIn records always stay in (work experience lives there)."""
+    if len(candidates) <= limit:
+        return candidates
+    query_concepts = concepts_in(query)
+    query_tokens = tokens(query)
+
+    def score(item: ProfileItem) -> tuple[float, int]:
+        text = _record_text(item)
+        concept_hits = len(concepts_in(text) & query_concepts)
+        token_hits = len(tokens(text) & query_tokens)
+        return (3 * concept_hits + token_hits, item.id)
+
+    always = [item for item in candidates if item.source_type in ("cv", "linkedin")][: limit // 2]
+    ranked = sorted((item for item in candidates if item not in always), key=score, reverse=True)
+    kept = always + ranked[: limit - len(always)]
+    return sorted(kept, key=lambda item: item.id)
 
 
 def _company_context(company: Company, target_position: str, application_reason: str) -> str:
@@ -118,11 +169,13 @@ def candidate_items(db: Session, exclude_ids: list[int] | tuple = ()) -> list[Pr
 
 def _ensure_a_cv(chosen: list[ProfileItem], candidates: list[ProfileItem]) -> list[ProfileItem]:
     """Work experience lives in the CV records - never let a draft go without
-    one, even if the ranking preferred repos."""
+    one, even if the ranking preferred repos. With per-entry CV records, the
+    experience entries are what's added."""
     if any(item.source_type == "cv" for item in chosen):
         return chosen
     cvs = [item for item in candidates if item.source_type == "cv"]
-    return chosen + cvs[-1:]
+    experience = [item for item in cvs if (item.extracted or {}).get("entry_type") == "experience"]
+    return chosen + (experience[:2] or cvs[-1:])
 
 
 def _fallback(candidates: list[ProfileItem], error: str) -> EvidenceSelection:
@@ -131,6 +184,7 @@ def _fallback(candidates: list[ProfileItem], error: str) -> EvidenceSelection:
     return EvidenceSelection(items=items, fallback=True, error=error)
 
 
+@llm_context("evidence_selection")
 def select_evidence(
     db: Session,
     llm: LLMProvider,
@@ -138,13 +192,23 @@ def select_evidence(
     target_position: str = "",
     application_reason: str = "",
     exclude_ids: list[int] | tuple = (),
+    job_posting=None,
 ) -> EvidenceSelection:
-    candidates = candidate_items(db, exclude_ids)
-    if len(candidates) <= MAX_EVIDENCE:
-        return EvidenceSelection(items=candidates)  # nothing to choose between - skip the call
+    all_candidates = candidate_items(db, exclude_ids)
+    if len(all_candidates) <= MAX_EVIDENCE:
+        return EvidenceSelection(items=all_candidates)  # nothing to choose between - skip the call
+    research = company.research or {}
+    query = " ".join(
+        [research.get("summary") or "", target_position, application_reason, company.why_interested or ""]
+        + [f"{p.get('title', '')} {p.get('details', '')}" for p in research.get("open_positions") or []]
+        + ([job_posting.title, job_posting.description_text or ""] if job_posting is not None else [])
+    )
+    candidates = pre_rank(all_candidates, query)
 
     index = "\n".join(_index_line(item) for item in candidates)
     prompt = f"RECORDS:\n{index}\n\n{_company_context(company, target_position, application_reason)}"
+    if job_posting is not None:
+        prompt += f"\n\nJOB POSTING ({job_posting.title}):\n{wrap_untrusted(job_posting.description_text[:6000], label='JOB POSTING')}"
     try:
         response = llm.generate(
             prompt=prompt,
@@ -154,10 +218,10 @@ def select_evidence(
             json_schema=SelectionAnswer.model_json_schema(),
         )
     except Exception as exc:  # noqa: BLE001 - a failed ranking must not block drafting
-        return _fallback(candidates, f"{type(exc).__name__}: {exc}"[:300])
+        return _fallback(all_candidates, f"{type(exc).__name__}: {exc}"[:300])
     data = parse_json_object(response.text, fallback={})
     if "parse_error" in data:
-        return _fallback(candidates, f"the answer wasn't valid JSON: {data['parse_error'][:200]}")
+        return _fallback(all_candidates, f"the answer wasn't valid JSON: {data['parse_error'][:200]}")
 
     by_id = {item.id: item for item in candidates}
     chosen: list[ProfileItem] = []
@@ -166,7 +230,7 @@ def select_evidence(
             chosen.append(by_id[item_id])
     chosen = chosen[:MAX_EVIDENCE]
     if not chosen:
-        return _fallback(candidates, "the answer named none of the offered record ids")
+        return _fallback(all_candidates, "the answer named none of the offered record ids")
 
     # "reasons" list is the current shape; the id-keyed "why" object is what
     # the prompt asked for before structured outputs, still accepted.
@@ -180,7 +244,7 @@ def select_evidence(
         ids = _parse_ids([key])
         if ids and ids[0] in by_id and isinstance(reason, str):
             why[ids[0]] = reason.strip()
-    return EvidenceSelection(items=_ensure_a_cv(chosen, candidates), why=why)
+    return EvidenceSelection(items=_ensure_a_cv(chosen, all_candidates), why=why)
 
 
 def items_by_ids(db: Session, ids: list[int], exclude_ids: list[int] | tuple = ()) -> list[ProfileItem]:
@@ -191,12 +255,59 @@ def items_by_ids(db: Session, ids: list[int], exclude_ids: list[int] | tuple = (
     return [found[i] for i in wanted if i in found]
 
 
-def evidence_prompt_section(items: list[ProfileItem]) -> str:
+def _rich_block(item: ProfileItem, role_type: str) -> str:
+    extracted = item.extracted or {}
+    lines = [f"WHAT: {extracted.get('one_liner', '')}"]
+    for key in ("problem", "approach"):
+        if extracted.get(key):
+            lines.append(f"{key.upper()}: {extracted[key]}")
+    uses = "; ".join(f"{u.get('tech')} - {u.get('for')}" for u in extracted.get("stack_used_for") or [])
+    if uses:
+        lines.append(f"STACK USED FOR: {uses}")
+    angle = (extracted.get("role_angles") or {}).get(role_type, "")
+    if angle:
+        lines.append(f"ANGLE FOR THIS ROLE ({role_type}): {angle}")
+    if extracted.get("owner_contribution"):
+        lines.append(f"OWNER'S CONTRIBUTION: {extracted['owner_contribution']}")
+    for result in extracted.get("results") or []:
+        lines.append(f'RESULT: {result.get("claim")} (quote: "{result.get("quote")}")')
+    for point in extracted.get("talking_points") or []:
+        lines.append(f"TALKING POINT: {point}")
+    maturity = extracted.get("maturity") or {}
+    flags = [key for key in ("tests", "ci", "deployed", "packaged") if maturity.get(key)]
+    if flags:
+        lines.append(f"MATURITY: {', '.join(flags)}")
+    return "\n".join(lines)
+
+
+def _entry_block(item: ProfileItem) -> str:
+    extracted = item.extracted or {}
+    dates = " - ".join(part for part in (extracted.get("start"), extracted.get("end")) if part)
+    lines = [f"{extracted.get('entry_type', '').upper()}: {extracted.get('role', '')}" + (f" ({dates})" if dates else "")]
+    lines += [f"- {bullet}" for bullet in extracted.get("bullets") or []]
+    return "\n".join(lines)
+
+
+def evidence_prompt_section(items: list[ProfileItem], role_type: str = "ml_ai") -> str:
+    """Records as the drafting prompt reads them: the role-relevant angle,
+    verified results and talking points for rich repo records, verbatim
+    bullets for CV entries, owner-stated facts for all - not a JSON dump."""
     blocks = []
     for item in items:
-        record = json.dumps(item.extracted or {}, ensure_ascii=False)[:MAX_RECORD_CHARS]
+        extracted = item.extracted or {}
+        if "one_liner" in extracted:
+            body = _rich_block(item, role_type)
+        elif "entry_type" in extracted:
+            body = _entry_block(item)
+        else:
+            body = json.dumps({k: v for k, v in extracted.items() if k != "parse_error"}, ensure_ascii=False)
+        stack = ", ".join(record_stack(item))
+        if stack and "one_liner" in extracted:
+            body += f"\nSTACK (from code): {stack}"
+        for fact in item.owner_facts or []:
+            body += f"\nOWNER STATED: {fact.get('question') + ' -> ' if fact.get('question') else ''}{fact.get('answer')}"
         urls = ", ".join(item.source_urls or []) or "none"
-        blocks.append(f"[E{item.id}] {item.source_type} | {item.source_ref} | urls: {urls}\n{record}")
+        blocks.append(f"[E{item.id}] {item.source_type} | {item.source_ref} | urls: {urls}\n{body[:MAX_RECORD_CHARS]}")
     return "\n\n".join(blocks)
 
 
@@ -209,7 +320,7 @@ def evidence_records(selection_items: list[ProfileItem], why: dict[int, str], us
             "source_type": item.source_type,
             "source_ref": item.source_ref,
             "source_url": (item.source_urls or [None])[0],
-            "purpose": ((item.extracted or {}).get("purpose") or "")[:MAX_PURPOSE_CHARS],
+            "purpose": record_title(item)[:MAX_PURPOSE_CHARS],
             "why": why.get(item.id, ""),
             "used": item.id in used_ids,
         }

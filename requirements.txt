@@ -30,6 +30,12 @@ httpx==0.28.1
 truststore==0.10.5
 beautifulsoup4==4.12.3
 
+# Discovery: owner-downloaded company lists (CSV is stdlib)
+openpyxl==3.1.5
+
+# Generated CVs (roadmap phase 5): Typst compiler bundled in the wheel - no system install
+typst==0.15.2
+
 # GitHub
 PyGithub==2.4.0
 

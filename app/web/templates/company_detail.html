@@ -21,7 +21,8 @@
     {% for pc in company.preference_check %}
     <div class="warning">
       <h3><span class="badge badge-{{ pc.severity }}">{{ pc.severity }}</span> {{ t("company_detail.preference_match") }} ({{ pc.confidence }} {{ t("company_detail.confidence") }})</h3>
-      <div class="evidence">"{{ pc.evidence_snippet }}"<br><a href="{{ pc.source_url }}" target="_blank" rel="noopener">{{ pc.source_url }}</a></div>
+      <div class="evidence">"{{ pc.evidence_snippet }}"<br><a href="{{ pc.source_url }}" target="_blank" rel="noopener">{{ pc.source_url }}</a>
+        {% if pc.source_url_verified is defined and not pc.source_url_verified %}<br><span class="muted">⚠ {{ t("company_detail.source_unverified") }}</span>{% endif %}</div>
     </div>
     {% endfor %}
     {% if blocked %}
@@ -115,6 +116,17 @@
         <p>{{ company.research.summary }}</p>
       {% endif %}
 
+      {% set job_pages = company.research.pages | selectattr("kind", "defined") | selectattr("kind", "equalto", "job") | list %}
+      {% if job_pages %}
+        <h3>{{ t("company_detail.job_pages_title") }} ({{ job_pages | length }})</h3>
+        <ul class="link-list">
+          {% for page in job_pages %}
+            <li><a href="{{ page.url }}" target="_blank" rel="noopener">{{ page.url }}</a>
+              <form method="post" action="/postings/from-page/{{ company.id }}" style="display:inline" data-loading-text="{{ t('loading.reading_posting') }}">
+                <input type="hidden" name="url" value="{{ page.url }}"><button type="submit" class="secondary">{{ t("company_detail.add_as_posting") }}</button></form></li>
+          {% endfor %}
+        </ul>
+      {% endif %}
       {% if company.research.open_positions %}
         <h3>{{ t("company_detail.open_positions_title") }} ({{ company.research.open_positions | length }})</h3>
         <ul>
@@ -140,6 +152,9 @@
         </p>
         {% if company.research.careers.application_form or company.research.careers.external_portal %}
           <p class="hint">{{ t("company_detail.careers.channel_note") }}</p>
+        {% endif %}
+        {% if company.research.channels_detected is defined %}
+          {% include "_channels_detected.html" %}
         {% endif %}
         {% if company.research.careers.page_looks_thin %}
           <p class="hint">⚠ {{ t("company_detail.careers.thin_warning") }}
@@ -168,14 +183,16 @@
                 {{ e.email }}
                 {% if e.kind == "hr" %}<span class="badge badge-state">{{ t("company_detail.email_kind_hr") }}</span>
                 {% else %}<span class="badge">{{ t("company_detail.email_kind_general") }}</span>{% endif %}
+                {% if e.invalid %}<span class="badge badge-hard">{{ t("company_detail.email_bounced") }}</span>{% endif %}
                 {% if e.context %}<span class="muted">— {{ e.context }}</span>{% endif %}
+                {% if e.url %}<a class="muted" href="{{ e.url }}" target="_blank" rel="noopener">[{{ t("company_detail.email_page") }}]</a>{% endif %}
               </li>
             {% endfor %}
           </ul>
         </details>
       {% endif %}
 
-      <p class="hint">{{ t("company_detail.fetched") }} {{ company.research.fetched_at[:16] | replace("T", " ") }}</p>
+      <p class="hint">{{ t("company_detail.fetched") }} {{ company.research.fetched_at[:16] | replace("T", " ") }}{% if company.research.reused_llm %} · {{ t("company_detail.research_reused") }}{% endif %}</p>
       <details>
         <summary>{{ t("company_detail.sources_summary") }} ({{ company.research.pages | length }})</summary>
         <ul class="link-list">
@@ -195,6 +212,7 @@
     {% endif %}
     <form method="post" action="/companies/{{ company.id }}/research" data-loading-text="{{ t('loading.researching') }}">
       <button type="submit" class="secondary">{{ t("company_detail.rerun_research") if company.research.pages else t("company_detail.run_research") }}</button>
+      {% if company.research.content_hash %}<label class="inline"><input type="checkbox" name="force" value="1"> {{ t("company_detail.force_research") }}</label>{% endif %}
     </form>
   </div>
 

@@ -4,7 +4,12 @@ import json
 
 import pytest
 
-from app.applications.drafting import DraftResult
+from app.applications.angles import AnglesAnswer
+from app.applications.letter import LetterMetadata
+from app.postings.evaluation import FitAnswer
+from app.postings.intake import PostingFields
+from app.profile_builder.entries import EntriesAnswer
+from app.profile_builder.repo_record import RepoRecord
 from app.applications.evidence import SelectionAnswer
 from app.companies.workflow import ResearchAnswer
 from app.discovery.triage import TriageResult
@@ -13,7 +18,10 @@ from app.models import Preference, PreferenceType
 from tests.fakes import FakeLLMProvider
 
 
-@pytest.mark.parametrize("model", [DraftResult, SelectionAnswer, CheckAnswer, ResearchAnswer, TriageResult])
+@pytest.mark.parametrize(
+    "model",
+    [LetterMetadata, AnglesAnswer, SelectionAnswer, CheckAnswer, ResearchAnswer, TriageResult, RepoRecord, PostingFields, FitAnswer, EntriesAnswer],
+)
 def test_answer_models_produce_valid_strict_schemas(model):
     import anthropic
 

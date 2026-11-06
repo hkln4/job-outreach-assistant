@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+{% block title %}{{ item.source_ref }}{% endblock %}
+{% block content %}
+  <p><a href="/profile">← {{ t("nav.profile") }}</a></p>
+  <h1>{{ item.source_ref }}</h1>
+  <p class="hint">
+    <span class="badge">{{ item.source_type }}</span>
+    <span class="badge {{ 'badge-state' if item.status.value == 'analyzed' else 'badge-soft' }}">{{ item.status.value }}</span>
+    {% if item.parent_ref %}· {{ t("profile_item.from_file") }} <code>{{ item.parent_ref }}</code>{% endif %}
+    {% for url in item.source_urls or [] %}· <a href="{{ url }}" target="_blank" rel="noopener">{{ url }}</a>{% endfor %}
+    {% if item.source_version and item.source_version.head_sha %}· {{ t("profile_item.analyzed_at") }} {{ item.source_version.head_sha[:7] }} ({{ (item.source_version.analyzed_at or "")[:10] }}){% endif %}
+  </p>
+  {% if item.source_type == "github_repo" %}
+    <form method="post" action="/profile/items/{{ item.id }}/reanalyze" data-loading-text="{{ t('loading.analyzing') }}">
+      <button type="submit" class="secondary">{{ t("profile_item.reanalyze") }}</button>
+    </form>
+  {% endif %}
+  {% if saved %}<div class="card"><p>✓ {{ t("profile_item.saved") }}</p></div>{% endif %}
+  {% if item.extracted.parse_error %}
+    <div class="warning"><strong>{{ t("profile.items.failed_prefix") }}</strong> {{ item.extracted.parse_error }}</div>
+  {% endif %}
+
+  {% if pending %}
+  <div class="section card">
+    <h2>{{ t("profile_item.pending_title") }} ({{ pending | length }})</h2>
+    <p class="hint">{{ t("profile_item.pending_hint") }}</p>
+    <form method="post" action="/profile/items/{{ item.id }}/pending/__all__" class="inline-form">
+      <button type="submit" name="action" value="accept">{{ t("profile_item.accept_all") }}</button>
+      <button type="submit" name="action" value="dismiss" class="secondary">{{ t("profile_item.dismiss_all") }}</button>
+    </form>
+    {% for p in pending %}
+      <div class="evidence">
+        <strong>{{ p.name }}</strong>
+        <div class="diff"><div class="diff-old"><span class="muted">{{ t("profile_item.current") }}</span><pre>{{ p.old }}</pre></div>
+        <div class="diff-new"><span class="muted">{{ t("profile_item.proposed") }}</span><pre>{{ p.new }}</pre></div></div>
+        <form method="post" action="/profile/items/{{ item.id }}/pending/{{ p.name }}" class="inline-form">
+          <button type="submit" name="action" value="accept">{{ t("profile_item.accept") }}</button>
+          <button type="submit" name="action" value="dismiss" class="secondary">{{ t("profile_item.dismiss") }}</button>
+        </form>
+      </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  {% if questions or item.owner_facts %}
+  <div class="section card">
+    <h2>{{ t("profile_item.questions_title") }}</h2>
+    <p class="hint">{{ t("profile_item.questions_hint") }}</p>
+    {% if item.owner_facts %}
+      <ul>
+        {% for fact in item.owner_facts %}
+          <li>{% if fact.question %}<span class="muted">{{ fact.question }}</span> — {% endif %}<strong>{{ fact.answer }}</strong>
+            <form method="post" action="/profile/items/{{ item.id }}/facts/{{ loop.index0 }}/delete" style="display:inline"><button type="submit" class="secondary">{{ t("common.delete") }}</button></form></li>
+        {% endfor %}
+      </ul>
+    {% endif %}
+    <form method="post" action="/profile/items/{{ item.id }}/answers">
+      {% for q in item.extracted.open_questions or [] %}
+        {% if q in questions %}
+          <label>{{ q }}<input type="text" name="answer_{{ loop.index0 }}"></label>
+        {% endif %}
+      {% endfor %}
+      <label>{{ t("profile_item.extra_fact") }}<input type="text" name="extra_fact" placeholder="{{ t('profile_item.extra_fact_placeholder') }}"></label>
+      <button type="submit">{{ t("common.save") }}</button>
+    </form>
+  </div>
+  {% else %}
+  <details class="section">
+    <summary>{{ t("profile_item.extra_fact") }}</summary>
+    <form method="post" action="/profile/items/{{ item.id }}/answers">
+      <input type="text" name="extra_fact" placeholder="{{ t('profile_item.extra_fact_placeholder') }}">
+      <button type="submit">{{ t("common.save") }}</button>
+    </form>
+  </details>
+  {% endif %}
+
+  <div class="section card">
+    <h2>{{ t("profile_item.record_title") }}</h2>
+    <p class="hint">{{ t("profile_item.record_hint") }}</p>
+    <form method="post" action="/profile/items/{{ item.id }}/edit">
+      {% for f in fields %}
+        <label>{{ f.name }}{% if f.owner_edited %} <span class="badge badge-state">{{ t("profile_item.owner_edited") }}</span>{% endif %}
+          {% if f.kind == "text" %}
+            <input type="text" name="{{ f.name }}" value="{{ f.value }}">
+          {% else %}
+            <textarea name="{{ f.name }}" rows="{{ [3, (f.value.count('\n') + 2)] | max }}">{{ f.value }}</textarea>
+          {% endif %}
+          {% if f.kind.startswith("pairs:") %}<span class="hint">{{ t("profile_item.pairs_hint") }} {{ f.kind[6:] | replace(",", " | ") }}</span>{% endif %}
+          {% if f.kind == "list" %}<span class="hint">{{ t("profile_item.list_hint") }}</span>{% endif %}
+          {% if f.kind == "mapping" %}<span class="hint">{{ t("profile_item.mapping_hint") }}</span>{% endif %}
+        </label>
+      {% endfor %}
+      <button type="submit">{{ t("common.save") }}</button>
+    </form>
+  </div>
+
+  {% if item.facts %}
+  <details class="section">
+    <summary>{{ t("profile_item.facts_title") }}</summary>
+    <p class="hint">{{ t("profile_item.facts_hint") }}</p>
+    <pre class="facts">{{ item.facts | tojson(indent=2) }}</pre>
+  </details>
+  {% endif %}
+{% endblock %}

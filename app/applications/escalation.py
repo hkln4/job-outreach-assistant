@@ -5,9 +5,11 @@ from sqlalchemy.orm import Session
 
 from app.applications.drafting import _resolve_cv, draft_application
 from app.llm.base import LLMProvider
+from app.llm.call_log import llm_context
 from app.models import Application, ApplicationState, Contact, ContactState
 
 
+@llm_context("escalation")
 def create_escalation_draft(db: Session, llm: LLMProvider, contact: Contact) -> Application:
     company = contact.company
     result = draft_application(db, llm, company)

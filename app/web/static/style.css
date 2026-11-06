@@ -990,3 +990,16 @@ details + details { margin-top: -0.75rem; }
 .cell-line { display: block; }
 /* a table inside a card is part of that card - no second frame/shadow */
 .card .table { box-shadow: none; }
+
+/* Re-analysis diff (profile item page) and computed facts */
+.diff { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 6px 0; }
+.diff pre, pre.facts { white-space: pre-wrap; word-break: break-word; margin: 4px 0; font-size: 12px; }
+.diff-old pre { background: var(--danger-soft); padding: 6px; border-radius: 4px; }
+.diff-new pre { background: var(--accent-soft); padding: 6px; border-radius: 4px; }
+@media (max-width: 700px) { .diff { grid-template-columns: 1fr; } }
+.grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+@media (max-width: 700px) { .grid-2 { grid-template-columns: 1fr; } }
+.pdf-frame { width: 100%; height: 860px; border: 1px solid var(--border, #ddd); border-radius: 6px; }
+.bullet-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: flex-start; margin: 6px 0; }
+.bullet-row textarea { flex: 1 1 420px; min-width: 0; }
+.link-button { background: none; border: none; padding: 0 2px; color: var(--accent); cursor: pointer; font-size: 12px; height: auto; }

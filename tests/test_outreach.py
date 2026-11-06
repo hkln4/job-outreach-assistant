@@ -10,6 +10,7 @@ from app.applications.drafting import create_draft_application
 from app.db import SessionLocal, init_db
 from app.models import CV, Application, ApplicationState, Company, FollowUpState, Profile
 from tests.fakes import FakeLLMProvider
+from tests.conftest import make_cv_file
 
 # Fixtures need enough text to read as a real page (see MIN_USABLE_RESEARCH_CHARS).
 PAGE_PAD = " The company works with logistics and manufacturing customers across Turkey, runs its own engineering team in Ankara, and publishes case studies about the systems it has delivered over the past several years."
@@ -95,11 +96,11 @@ def test_overdue_applications_uses_threshold_fallback(monkeypatch):
 
 
 def test_check_application_reply_stamps_and_transitions(monkeypatch):
-    monkeypatch.setattr(reply_check, "thread_has_reply", lambda thread_id: True)
+    monkeypatch.setattr(reply_check, "classify_thread", lambda thread_id: {"kind": "reply", "detail": "", "message_id": "r1"})
     db = SessionLocal()
     try:
         _, application = _seed_sent_application(db, name="RepliedCo", email="jobs@replied.example")
-        assert reply_check.check_application_reply(db, application) is True
+        assert reply_check.check_application_reply(db, application) == "reply"
         assert application.state == ApplicationState.REPLIED
         assert application.last_checked_at is not None
     finally:
@@ -142,7 +143,7 @@ def test_open_application_draft_uses_owner_position_and_reason():
     db = SessionLocal()
     try:
         profile = Profile(summary="Backend engineer.", skills=[], target_roles=["Backend Engineer"])
-        cv = CV(name="Main CV", file_path="data/cv_variants/main.pdf")
+        cv = CV(name="Main CV", file_path=make_cv_file("main.pdf"))
         company = Company(
             name="OpenAppCo",
             website_url="https://openapp.example",

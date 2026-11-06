@@ -273,3 +273,63 @@ def fetch_linkedin_company(
         raise LinkedInFetchError(f"LinkedIn research timed out after {timeout_seconds}s.") from exc
     except Exception as exc:  # noqa: BLE001 - surfaced on the company page by the _safe wrapper
         raise LinkedInFetchError(f"Could not run the LinkedIn MCP server ({command}): {exc}") from exc
+
+
+# --- One job posting (roadmap phase 3: LinkedIn posting intake) ---
+# Same server, same throwaway session, same rules: owner-triggered, one
+# posting per click, read-only. The server's job tool takes the numeric id
+# from /jobs/view/<id>; verify the tool name against the installed server
+# version if this starts failing (LinkedIn MCP tools are renamed occasionally).
+TOOL_JOB = "get_job_details"
+
+
+def linkedin_job_id(url: str) -> str | None:
+    """"https://www.linkedin.com/jobs/view/4012345678/?ref=x" -> "4012345678"
+    (also ?currentJobId=... on search pages)."""
+    if not url:
+        return None
+    parsed = urlparse(url if url.startswith(("http://", "https://")) else "https://" + url)
+    host = parsed.netloc.lower()
+    if not (host == "linkedin.com" or host.endswith(".linkedin.com")):
+        return None
+    parts = [p for p in parsed.path.split("/") if p]
+    if len(parts) >= 3 and parts[0] == "jobs" and parts[1] == "view" and parts[2].split("-")[-1].isdigit():
+        return parts[2].split("-")[-1]
+    for pair in parsed.query.split("&"):
+        key, _, value = pair.partition("=")
+        if key == "currentJobId" and value.isdigit():
+            return value
+    return None
+
+
+async def _run_job(job_id: str, command_args: list[str]) -> dict:
+    params = StdioServerParameters(
+        command=command_args[0], args=command_args[1:], env={**get_default_environment(), "UV_HTTP_TIMEOUT": "300"}
+    )
+    async with stdio_client(params) as (read, write):
+        async with ClientSession(read, write) as session:
+            await session.initialize()
+            payload = _tool_payload(
+                await session.call_tool(TOOL_JOB, {"job_id": job_id}, read_timeout_seconds=PER_CALL_TIMEOUT)
+            )
+    sections = _sections(payload, max_chars=20000)
+    text = "\n\n".join(sections.values()) or json.dumps(payload, ensure_ascii=False)[:20000]
+    return {"job_id": job_id, "source_url": payload.get("url") or f"https://www.linkedin.com/jobs/view/{job_id}/", "text": text}
+
+
+def fetch_linkedin_job(job_url: str, *, command: str, timeout_seconds: int) -> dict:
+    """{"job_id", "source_url", "text"} for one LinkedIn job posting."""
+    job_id = linkedin_job_id(job_url)
+    if not job_id:
+        raise LinkedInFetchError(f"Not a LinkedIn job URL: {job_url!r}")
+    command_args = shlex.split(command)
+    if not command_args:
+        raise LinkedInFetchError("LINKEDIN_MCP_COMMAND is empty.")
+    try:
+        return asyncio.run(asyncio.wait_for(_run_job(job_id, command_args), timeout_seconds))
+    except LinkedInFetchError:
+        raise
+    except asyncio.TimeoutError as exc:
+        raise LinkedInFetchError(f"Reading the LinkedIn posting timed out after {timeout_seconds}s.") from exc
+    except Exception as exc:  # noqa: BLE001
+        raise LinkedInFetchError(f"Could not run the LinkedIn MCP server ({command}): {exc}") from exc

@@ -10,19 +10,23 @@ Research answers, from the fetched pages only:
 - a profile-fit suggestion (which position to target and why), grounded in the
   owner's profile - preferences are checked separately by the preference checker
 """
+import hashlib
 import re
 from datetime import datetime, timezone
 
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from app.companies.context import build_company_context, locate_quote
+from app.companies.emails import merge_emails
 from app.companies.fetch import MIN_USABLE_RESEARCH_CHARS, fetch_company_research
 from app.email_send.gmail_client import validate_email
 from app.llm.base import LLMProvider
+from app.llm.call_log import llm_context, set_llm_ids
 from app.llm.json_utils import parse_json_object
 from app.llm.untrusted import UNTRUSTED_RULE, wrap_untrusted
 from app.models import Company, Preference, Profile
-from app.preferences.checker import check_company
+from app.preferences.checker import PREFERENCE_CONTEXT_CHARS, check_company
 
 RESEARCH_SYSTEM_PROMPT = """You are researching a company's website text (home page + \
 careers/about/contact pages if available) on behalf of a job applicant. Base EVERYTHING \
@@ -64,6 +68,9 @@ Output ONLY valid JSON, this exact shape:
 "people": [{"name": string, "role": string, "email": string | null}], \
 "fit": {"recommended_position": string | null, "reasoning": string} | null}
 """
+
+RESEARCH_CONTEXT_CHARS = 40000
+
 
 class _Position(BaseModel):
     title: str
@@ -148,7 +155,7 @@ def classify_email(email: str) -> str:
 def pick_contact_email(emails: list[dict]) -> dict | None:
     """First valid HR/recruitment address wins; otherwise the first valid one.
     HR runs hiring, so applications should land there when possible."""
-    valid = [e for e in emails if validate_email((e.get("email") or "").strip())]
+    valid = [e for e in emails if validate_email((e.get("email") or "").strip()) and not e.get("invalid")]
     for e in valid:
         if e["kind"] == "hr":
             return e
@@ -168,12 +175,17 @@ def _profile_context(db: Session) -> str:
     )
 
 
-def research_company(db: Session, llm: LLMProvider, company: Company) -> Company:
+@llm_context("research")
+def research_company(db: Session, llm: LLMProvider, company: Company, force: bool = False) -> Company:
+    """Fetch + summarize + preference check. When the fetched text is identical
+    to the last research (content hash) the previous AI answers are reused and
+    no LLM call is made, unless `force` (section 8: deterministic first);
+    emails, channels and links are always recomputed by code."""
     if not company.website_url:
         raise ValueError("Company has no website_url set - cannot research.")
+    set_llm_ids(company_id=company.id)
 
     result = fetch_company_research(company.website_url, company.careers_url)
-    combined_text = "\n\n---\n\n".join(f"[{p['url']}]\n{p['text']}" for p in result["pages"])
 
     # Nothing readable came back (JS-only site, a shell behind a WAF, wrong
     # URL). Record that plainly instead of storing an empty-but-successful
@@ -188,6 +200,10 @@ def research_company(db: Session, llm: LLMProvider, company: Company) -> Company
             "pages": result["pages"],
             "content_chars": content_chars,
             "content_safety": result.get("content_safety"),
+            # Code-found addresses and channels still count on a page with
+            # too little text to research (a JS shell with a mailto footer).
+            "emails": _emails_for(company, result.get("emails_detected") or [], []),
+            "channels_detected": result.get("channels_detected") or [],
             "empty": True,
             "fetched_at": datetime.now(timezone.utc).isoformat(),
         }
@@ -197,34 +213,52 @@ def research_company(db: Session, llm: LLMProvider, company: Company) -> Company
         db.refresh(company)
         return company
 
-    # 40k chars (~10k tokens): room for the extra job-posting pages the fetch
-    # now follows, still well inside cost discipline for a Haiku/Flash call.
-    response = llm.generate(
-        prompt=wrap_untrusted(combined_text[:40000]) + _profile_context(db),
-        system=RESEARCH_SYSTEM_PROMPT + "\n" + UNTRUSTED_RULE,
-        temperature=0.0,
-        max_output_tokens=1500,
-        json_schema=ResearchAnswer.model_json_schema(),
-    )
-    data = parse_json_object(response.text, fallback=RESEARCH_FALLBACK)
-
+    previous = company.research or {}
+    digest = hashlib.sha256("\n".join(p.get("text") or "" for p in result["pages"]).encode()).hexdigest()
     preferences = db.query(Preference).all()
-    flags = check_company(llm, combined_text, preferences)
+    preference_ids = sorted(p.id for p in preferences)
+    reuse = (
+        not force
+        and previous.get("content_hash") == digest
+        and previous.get("llm_answer") is not None
+        and previous.get("llm_preference_ids") == preference_ids
+    )
+    if reuse:
+        data, flags = previous["llm_answer"], previous.get("llm_flags") or []
+    else:
+        # 40k chars (~10k tokens), allocated by priority so the job-posting pages
+        # are never the part that gets cut (app/companies/context.py).
+        research_text = build_company_context(result["pages"], RESEARCH_CONTEXT_CHARS)
+        response = llm.generate(
+            prompt=wrap_untrusted(research_text) + _profile_context(db),
+            system=RESEARCH_SYSTEM_PROMPT + "\n" + UNTRUSTED_RULE,
+            temperature=0.0,
+            max_output_tokens=1500,
+            json_schema=ResearchAnswer.model_json_schema(),
+        )
+        data = parse_json_object(response.text, fallback=RESEARCH_FALLBACK)
+        flags = check_company(llm, build_company_context(result["pages"], PREFERENCE_CONTEXT_CHARS), preferences)
     pref_by_id = {p.id: p for p in preferences}
 
-    primary_source_url = result["pages"][0]["url"] if result["pages"] else company.website_url
+    pages = result["pages"]
+    primary_source_url = pages[0]["url"] if pages else company.website_url
     preference_check = []
     for flag in flags:
         pref = pref_by_id.get(flag.get("preference_id"))
         if pref is None:
             continue
+        snippet = flag.get("evidence_snippet", "")
+        # The page the snippet is actually on, found by code; the homepage
+        # only when no page contains it - and then marked unverified.
+        located = locate_quote(snippet, pages)
         preference_check.append(
             {
                 "preference_id": pref.id,
                 "matched": True,
                 "severity": pref.type.value,
-                "evidence_snippet": flag.get("evidence_snippet", ""),
-                "source_url": primary_source_url,
+                "evidence_snippet": snippet,
+                "source_url": located or primary_source_url,
+                "source_url_verified": located is not None,
                 "confidence": flag.get("confidence", "low"),
             }
         )
@@ -243,17 +277,13 @@ def research_company(db: Session, llm: LLMProvider, company: Company) -> Company
                 "name": name,
                 "role": (person.get("role") or "").strip(),
                 "email": email if validate_email(email) else "",
-                "source_url": primary_source_url,
+                "source_url": locate_quote(name, pages) or primary_source_url,
             }
         )
 
-    # All emails found on the site, HR/recruitment classified by the app.
-    emails = []
-    for entry in data.get("emails", []) or []:
-        address = (entry.get("email") or "").strip()
-        if not address:
-            continue
-        emails.append({"email": address, "context": (entry.get("context") or "").strip(), "kind": classify_email(address)})
+    # All emails on the site: code-found ones from the raw HTML first, then
+    # any extra the model reported; HR/recruitment classified by the app.
+    emails = _emails_for(company, result.get("emails_detected") or [], data.get("emails", []) or [])
 
     careers = data.get("careers") or {}
     company.research = {
@@ -266,6 +296,8 @@ def research_company(db: Session, llm: LLMProvider, company: Company) -> Company
         "open_positions": data.get("open_positions", []) or [],
         "careers": {
             "has_careers_page": bool(careers.get("has_careers_page")),
+            # The model's guess, kept only as a fallback note - the real
+            # answer is `channels_detected`, read from the HTML by code.
             "application_form": bool(careers.get("application_form")),
             "external_portal": careers.get("external_portal") or "",
             "notes": careers.get("notes") or "",
@@ -274,13 +306,21 @@ def research_company(db: Session, llm: LLMProvider, company: Company) -> Company
             "page_looks_thin": bool(result.get("careers_page_thin")),
         },
         "emails": emails,
+        "channels_detected": result.get("channels_detected") or [],
         "fit": data.get("fit") or None,
         "suggested_contacts": suggested_contacts,
         "fetched_at": datetime.now(timezone.utc).isoformat(),
+        # For the next re-run: same text + same preferences -> reuse, no LLM call.
+        "content_hash": digest,
+        "llm_answer": data if "parse_error" not in data else None,
+        "llm_flags": flags,
+        "llm_preference_ids": preference_ids,
+        "reused_llm": reuse,
     }
     company.other_channels = data.get("channels", [])
     company.preference_check = preference_check
-    company.hard_exclusion_confirmed = False  # new research invalidates any prior confirmation
+    if not reuse:
+        company.hard_exclusion_confirmed = False  # new findings invalidate any prior confirmation
     if result.get("detected_careers_url") and not company.careers_url:
         company.careers_url = result["detected_careers_url"]
     # Most sites link their own LinkedIn page from the header/footer, so the
@@ -301,13 +341,33 @@ def research_company(db: Session, llm: LLMProvider, company: Company) -> Company
     return company
 
 
-def research_company_safe(db: Session, llm: LLMProvider, company: Company) -> Company:
+def _emails_for(company: Company, detected: list[dict], from_llm: list[dict]) -> list[dict]:
+    """Merged, classified emails; addresses that bounced before are kept but
+    marked, so pick_contact_email never offers them again."""
+    invalid = {e.lower() for e in company.invalid_emails or []}
+    emails = []
+    for entry in merge_emails(detected, from_llm):
+        address = entry["email"]
+        emails.append(
+            {
+                "email": address,
+                "context": (entry.get("context") or "").strip(),
+                "url": entry.get("url") or "",
+                "found_by": entry.get("found_by", "llm"),
+                "kind": classify_email(address),
+                "invalid": address.lower() in invalid,
+            }
+        )
+    return emails
+
+
+def research_company_safe(db: Session, llm: LLMProvider, company: Company, force: bool = False) -> Company:
     """Same as research_company, but a failure (site unreachable, blocked, LLM
     error, ...) is recorded on the company instead of raising - so a bad fetch
     shows up as a visible "research failed: <reason>" on the company page
     instead of either crashing the request or silently leaving it blank."""
     try:
-        return research_company(db, llm, company)
+        return research_company(db, llm, company, force=force)
     except Exception as exc:  # noqa: BLE001 - surfaced on the company page, not swallowed
         company.research = {"pages": [], "error": str(exc)}
         db.commit()

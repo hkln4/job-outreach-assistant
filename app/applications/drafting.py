@@ -1,12 +1,25 @@
-"""Recommendation + drafting (CLAUDE.md section 5 steps 3-4). Evidence Rule: every
-company-specific claim in the draft must be backed by a source URL from the
-company's cached research."""
+"""Recommendation + drafting (CLAUDE.md section 5 steps 3-4, roadmap phase 4).
+Evidence Rule: every company-specific claim must be backed by a source URL from
+the company's cached research (or the posting being answered).
+
+A draft is three small calls on the draft model, each checked by code:
+1. angles (app/applications/angles.py) - a quoted company hook + an owner
+   record + a bridge; hooks not on a fetched page and ids not offered are
+   dropped;
+2. the letter as plain text (app/applications/letter.py), around the chosen
+   angle, with style memory, recipient tone and the shared banned-phrase list;
+3. metadata (sources, evidence used, CV choice, reasoning) over the finished
+   letter.
+The app then appends the signature block (never the model), links the lead
+project's portfolio page when there is one, and runs the grounding audit
+(numbers and technologies vs the sources) for "check before sending".
+"""
 import json
 from urllib.parse import urldefrag
 
-from pydantic import BaseModel, Field, ValidationError, field_validator
 from sqlalchemy.orm import Session
 
+from app.applications.angles import propose_angles, verify_angles
 from app.applications.draft_review import review_draft
 from app.applications.evidence import (
     EvidenceSelection,
@@ -15,151 +28,53 @@ from app.applications.evidence import (
     items_by_ids,
     select_evidence,
 )
+from app.applications.grounding import grounding_misses
+from app.applications.letter import letter_metadata, write_letter
 from app.applications.review import ensure_not_sent
+from app.applications.signature import owner_identity, signature_block, strip_trailing_name, with_signature
+from app.applications.style import RECIPIENT_TONE, recipient_kind, style_prompt_section
+from app.applications.synonyms import role_type_for
+from app.companies.context import research_context
 from app.companies.workflow import has_usable_research
 from app.config import get_settings
 from app.llm.base import LLMProvider
-from app.llm.json_utils import parse_json_object
-from app.llm.untrusted import UNTRUSTED_RULE, wrap_untrusted
+from app.llm.call_log import llm_context, set_llm_ids
+from app.llm.untrusted import wrap_untrusted
 from app.models import (
     CV,
     EMAIL_LANGUAGES,
     Application,
     ApplicationState,
     Company,
+    JobPosting,
     Profile,
     ProfileItem,
+    ProfileItemStatus,
     get_email_language,
 )
+from app.postings.gates import detect_language
+from app.postings.service import has_unconfirmed_hard_flag
 
-DRAFT_SYSTEM_PROMPT = """You are writing a job application email on behalf of the owner
-(a new graduate), using their profile, the most relevant background records, and the
-company's own website text.
+PROJECT_PAGE_LABEL = {"tr": "Proje sayfası", "en": "Project page"}
 
-Work in this order:
+DRAFT_CONTEXT_CHARS = 24000
+POSTING_CONTEXT_CHARS = 12000
+# A posting with at least this much text can be drafted from even before the
+# company itself is researched.
+MIN_POSTING_CHARS = 200
 
-1. Position
-If OWNER'S CHOSEN POSITION is given, use it exactly as target_position. Otherwise,
-choose the role that best fits the company's open positions and the owner's target roles.
-If OWNER'S REASON FOR APPLYING is given, treat this as an open application: do not imply
-there is an open posting unless the company text explicitly says so.
 
-2. The company
-Identify what the company actually builds, for whom, and the concrete problem it solves.
-Only use facts stated in the company text. Do not infer responsibilities for the role unless
-they are explicitly described in a job posting.
-
-3. The owner's relevant matches
-Review RETRIEVED PROFILE EVIDENCE and keep only experience that is genuinely relevant:
-the same problem, domain, or technology used for the same purpose. Sharing a language,
-framework, or generic AI interest alone is not enough.
-
-a. Lead project
-Choose ONE experience or project that best fits the position. A GitHub project can be
-selected over CV experience if it is more relevant.
-
-Describe it in at most two short sentences:
-- what problem the owner worked on;
-- what they built;
-- optionally, one concrete result or metric only if it strongly supports relevance.
-
-Do not list datasets, model variants, libraries, infrastructure, or several metrics unless
-they are essential to understanding the project's relevance.
-
-b. Supporting sentence
-Add at most one short sentence about another relevant project, skill, or technology.
-Omit this sentence entirely when it does not make the application more relevant.
-Never mention unrelated projects just to show breadth.
-
-4. Write the email
-
-If OWNER'S COVER LETTER TEMPLATE is given, follow its overall tone, greeting, and closing,
-but replace company- and project-specific content with the relevant information above.
-
-Without a template, write four short paragraphs:
-1. Who the owner is and which position they seek.
-2. One factual, concrete reason for contacting this company.
-3. The lead project in one or two sentences, followed by an optional supporting sentence.
-4. A short closing that mentions the attached CV and asks for an opportunity to talk.
-
-Email requirements:
-- Aim for 130–180 words in Turkish or 100–150 words in English.
-- This is an introductory email, not a CV summary or technical project report.
-- Prefer relevance and clarity over completeness.
-- Use short, direct, natural sentences.
-- If OWNER'S NOTES ON WHY THIS COMPANY is given, use it for the motivation paragraph.
-- Language: use OWNER'S PREFERRED EMAIL LANGUAGE when provided. Otherwise use the
-  language of OWNER'S COVER LETTER TEMPLATE; if neither is available, use Turkish.
-- Never mix languages within the email.
-- Subject: "Junior <target_position> Başvurusu" in Turkish or "Junior <target_position> Application"
-  in English. Do not add "Junior" if target_position already includes it.
-
-Tone:
-- Write like a new graduate writing to a person, not a generic cover-letter template.
-- Explain the company plainly; do not repeat product names, acronyms, or jargon unless
-  necessary and briefly explained.
-- Do not praise the company or claim interest that is not supported by the owner's notes.
-- Never use stock phrases such as:
-  "katkı sağlayabileceğime inanıyorum",
-  "ilgiyle takip ediyorum",
-  "bilgi ve deneyimlerimle örtüşüyor",
-  "sağlam bir temel oluşturuyor",
-  "I believe I can contribute",
-  "I have been following with great interest".
-- Show evidence instead of making broad claims. Do not say the owner has "strong"
-  experience; say what they built when it is relevant.
-- Do not invent confidence, experience, motivation, or qualifications.
-
-Evidence rules:
-- Every company statement must come from the company text.
-- "sources" must contain only URLs copied exactly from [url] headers in the company text.
-- Personal claims must come only from the profile summary, skills, and evidence records.
-- Mention a technology only when evidence shows the owner used it.
-- Include the number of every evidence record used in "evidence_item_ids".
-- Put any personal claim not supported by evidence in "unsupported_claims"
-  (normally this must be empty).
-
-Also return:
-- "cv_choice_name": the CV variant, using its exact name from the provided list, that best
-  fits this position.
-- "reasoning": a short note to the owner in the email's language:
-  (1) what the company does;
-  (2) which project was selected and why it is relevant;
-  (3) why this position and CV were chosen.
-
-Output ONLY valid JSON in this exact shape:
-{"target_position": string, "cv_choice_name": string, "reasoning": string,
-"subject": string, "cover_letter_body": string, "sources": [string],
-"evidence_item_ids": [int], "unsupported_claims": [string]}
-""" + UNTRUSTED_RULE
-
-class DraftResult(BaseModel):
-    """Shape check on the model's answer - a missing letter or a wrong-typed
-    field becomes a readable error instead of a half-empty draft."""
-
-    target_position: str = ""
-    cv_choice_name: str = ""
-    reasoning: str = ""
-    subject: str
-    cover_letter_body: str
-    sources: list[str] = []
-    evidence_item_ids: list[int] = Field(default_factory=list)
-    unsupported_claims: list[str] = Field(default_factory=list)
-
-    @field_validator("evidence_item_ids", mode="before")
-    @classmethod
-    def _ids_from_labels(cls, value: object) -> object:
-        # The prompt labels records "[E12]"; models sometimes echo the label.
-        if isinstance(value, list):
-            return [str(v).strip().lstrip("Ee") if isinstance(v, str) else v for v in value]
-        return value
-
-    @field_validator("subject", "cover_letter_body")
-    @classmethod
-    def _not_blank(cls, value: str) -> str:
-        if not value.strip():
-            raise ValueError("must not be empty")
-        return value
+def company_context_for(company: Company, job_posting: JobPosting | None, budget: int) -> str:
+    """The company text a letter is grounded in: the posting being answered
+    first (when there is one), then the research by priority."""
+    if job_posting is None:
+        return research_context(company.research, budget, with_header=True)
+    posting_text = job_posting.description_text or ""
+    if len(posting_text) > POSTING_CONTEXT_CHARS:
+        posting_text = posting_text[: POSTING_CONTEXT_CHARS - 500] + "\n...\n" + posting_text[-500:]
+    header = f"JOB POSTING BEING ANSWERED: {job_posting.title}\n[{job_posting.url or 'pasted posting'}]\n{posting_text}"
+    rest = research_context(company.research, max(0, budget - len(header)), with_header=True) if has_usable_research(company) else ""
+    return header + ("\n\n---\n\n" + rest if rest else "")
 
 
 def _normalize_url(url: str) -> str:
@@ -180,16 +95,6 @@ def validate_sources(sources: list[str], pages: list[dict]) -> tuple[list[str], 
         elif page_url not in kept:
             kept.append(page_url)
     return kept, dropped
-
-
-DRAFT_FALLBACK = {
-    "target_position": "unknown",
-    "cv_choice_name": "unknown",
-    "reasoning": "",
-    "subject": "",
-    "cover_letter_body": "",
-    "sources": [],
-}
 
 
 def _resolve_cv(db: Session, cv_choice_name: str) -> CV | None:
@@ -213,7 +118,7 @@ def _resolve_cv(db: Session, cv_choice_name: str) -> CV | None:
     return None
 
 
-def _require_draft_inputs(db: Session, company: Company) -> tuple[Profile, list[CV]]:
+def _require_draft_inputs(db: Session, company: Company, job_posting: JobPosting | None = None) -> tuple[Profile, list[CV]]:
     profile = db.query(Profile).first()
     if profile is None:
         raise ValueError("No Profile yet - run the Profile Builder and synthesize first.")
@@ -226,6 +131,13 @@ def _require_draft_inputs(db: Session, company: Company) -> tuple[Profile, list[
     # letter in (Evidence Rule): it either invents one or answers with a request
     # for the missing information, which then fails as "invalid JSON". Say what
     # is actually wrong instead.
+    if job_posting is not None:
+        if (job_posting.status.value if job_posting.status else "") == "EXPIRED":
+            raise ValueError("This posting is closed (expired) - nothing to apply to.")
+        if has_unconfirmed_hard_flag(job_posting):
+            raise ValueError("The posting matches a hard exclusion - confirm it on the posting page before drafting.")
+        if len((job_posting.description_text or "").strip()) >= MIN_POSTING_CHARS:
+            return profile, cvs  # the posting itself is the company text
     if not has_usable_research(company):
         raise ValueError(
             f"Research for {company.name} came back empty - there is no site text to write from. "
@@ -234,6 +146,51 @@ def _require_draft_inputs(db: Session, company: Company) -> tuple[Profile, list[
     return profile, cvs
 
 
+def letter_language(db: Session, profile: Profile, job_posting: JobPosting | None) -> str:
+    """tr | en: the owner's choice, else the posting's language, else the
+    template's, else Turkish (CLAUDE.md section 1)."""
+    chosen = get_email_language(db)
+    if chosen:
+        return chosen
+    if job_posting is not None and job_posting.language in EMAIL_LANGUAGES:
+        return job_posting.language
+    if (profile.cover_letter_template or "").strip():
+        return detect_language(profile.cover_letter_template) or "tr"
+    return "tr"
+
+
+def portfolio_link_for(db: Session, item: ProfileItem | None, portfolio_url: str) -> str:
+    """The owner's portfolio page for the lead project, when one was ingested:
+    the item itself if it is a portfolio page, else a portfolio sub-page whose
+    URL or text names the repo."""
+    if item is None or not portfolio_url:
+        return ""
+    root = portfolio_url.rstrip("/")
+    if item.source_type == "site" and item.source_ref.startswith(root) and item.source_ref.rstrip("/") != root:
+        return item.source_ref
+    if item.source_type != "github_repo":
+        return ""
+    repo = item.source_ref.split("/")[-1].casefold()
+    for page in db.query(ProfileItem).filter(ProfileItem.source_type == "site", ProfileItem.status == ProfileItemStatus.ANALYZED).all():
+        if not page.source_ref.startswith(root) or page.source_ref.rstrip("/") == root:
+            continue
+        text = f"{page.source_ref} {(page.extracted or {}).get('purpose', '')} {' '.join((page.extracted or {}).get('highlights') or [])}".casefold()
+        if repo and (repo in text or repo.replace("-", " ") in text):
+            return page.source_ref
+    return ""
+
+
+def _sources_text(profile: Profile, evidence_items: list[ProfileItem], company_text: str) -> str:
+    """Everything a letter may draw facts from - for the grounding audit."""
+    parts = [profile.summary or "", json.dumps(profile.skills or [], ensure_ascii=False), company_text]
+    for item in evidence_items:
+        parts.append(json.dumps(item.extracted or {}, ensure_ascii=False))
+        parts.append(json.dumps(item.facts or {}, ensure_ascii=False))
+        parts += [fact.get("answer", "") for fact in item.owner_facts or []]
+    return "\n".join(parts)
+
+
+@llm_context("draft")
 def draft_application(
     db: Session,
     llm: LLMProvider,
@@ -242,60 +199,129 @@ def draft_application(
     target_position: str = "",
     application_reason: str = "",
     evidence_items: list[ProfileItem] | None = None,
+    job_posting: JobPosting | None = None,
+    angles: list[dict] | None = None,
+    angle_index: int = 0,
+    application: Application | None = None,
 ) -> dict:
-    profile, cvs = _require_draft_inputs(db, company)
+    """One draft. `angles` reuses saved angles (no angle call); `angle_index`
+    picks which one the letter is built around."""
+    set_llm_ids(company_id=company.id)
+    profile, cvs = _require_draft_inputs(db, company, job_posting)
+    evidence_items = evidence_items or []
 
-    pages = company.research.get("pages", [])
-    company_text = "\n\n---\n\n".join(f"[{p['url']}]\n{p['text']}" for p in pages)
+    pages = list((company.research or {}).get("pages", []))
+    # Budgeted by priority: job pages first, then careers/about/home/contact,
+    # with the research summary and open positions on top (section 8). A
+    # posting being answered leads the context.
+    company_text = company_context_for(company, job_posting, DRAFT_CONTEXT_CHARS)
+    if job_posting is not None and job_posting.url:
+        pages.append({"url": job_posting.url, "kind": "job", "text": job_posting.description_text})
 
+    research = company.research or {}
+    role_type = role_type_for(
+        " ".join([target_position, application_reason, research.get("summary") or ""]
+                 + [p.get("title", "") for p in research.get("open_positions") or []]
+                 + ([job_posting.title, " ".join(job_posting.requirements or [])] if job_posting else []))
+    )
+    evidence_section = evidence_prompt_section(evidence_items, role_type)
     cv_list = "\n".join(f"- {cv.name} (target_role: {cv.target_role or 'unknown'})" for cv in cvs)
+    language = letter_language(db, profile, job_posting)
 
-    prompt = (
+    owner_context = (
         f"OWNER PROFILE SUMMARY:\n{profile.summary}\n\n"
-        f"OWNER SKILLS:\n{json.dumps(profile.skills)}\n\n"
-        f"OWNER TARGET ROLES:\n{', '.join(profile.target_roles)}\n\n"
-        f"AVAILABLE CV VARIANTS:\n{cv_list}\n\n"
-        f"RETRIEVED PROFILE EVIDENCE (the owner's most relevant background records):\n"
-        f"{evidence_prompt_section(evidence_items or []) or 'none'}\n\n"
-        f"COMPANY: {company.name}\n\nCOMPANY RESEARCH TEXT:\n{wrap_untrusted(company_text[:24000])}"
+        f"OWNER SKILLS:\n{', '.join(s.get('skill', '') for s in profile.skills or [])}\n\n"
+        f"OWNER TARGET ROLES:\n{', '.join(profile.target_roles)}"
     )
     if target_position.strip():
-        prompt += f"\n\nOWNER'S CHOSEN POSITION (use exactly this):\n{target_position.strip()}"
+        owner_context += f"\n\nOWNER'S CHOSEN POSITION (use exactly this):\n{target_position.strip()}"
     if application_reason.strip():
-        prompt += f"\n\nOWNER'S REASON FOR APPLYING (open/speculative application):\n{application_reason.strip()}"
+        owner_context += f"\n\nOWNER'S REASON FOR APPLYING (open/speculative application):\n{application_reason.strip()}"
     if company.why_interested.strip():
-        prompt += f"\n\nOWNER'S NOTES ON WHY THIS COMPANY:\n{company.why_interested.strip()}"
-    email_language = get_email_language(db)
-    if email_language:
-        prompt += f"\n\nOWNER'S PREFERRED EMAIL LANGUAGE:\n{EMAIL_LANGUAGES[email_language]}"
+        owner_context += f"\n\nOWNER'S NOTES ON WHY THIS COMPANY:\n{company.why_interested.strip()}"
+
+    # 1. Angles (kept from earlier drafts when given)
+    offered = {item.id for item in evidence_items}
+    dropped_angles = 0
+    if angles is None:
+        raw = propose_angles(llm, company_name=company.name, company_text=company_text, evidence_section=evidence_section, owner_context=owner_context)
+        angles, dropped_angles = verify_angles(raw, pages, offered)
+    angle_index = angle_index if 0 <= angle_index < len(angles) else 0
+    angle = angles[angle_index] if angles else None
+
+    # 2. The letter, plain text
+    prompt = (
+        f"{owner_context}\n\nRETRIEVED PROFILE EVIDENCE (the owner's most relevant background records):\n"
+        f"{evidence_section or 'none'}\n\nCOMPANY: {company.name}\n\nCOMPANY RESEARCH TEXT:\n{wrap_untrusted(company_text)}"
+    )
+    if angle:
+        prompt += (
+            f"\n\nCHOSEN ANGLE:\n- company hook: \"{angle['company_hook']}\" ({angle['hook_url']})\n"
+            f"- lead evidence: E{angle['owner_evidence_id']}\n- bridge: {angle['bridge']}\n- position: {angle['position']}"
+        )
+    chosen_language = get_email_language(db)
+    if chosen_language:
+        prompt += f"\n\nOWNER'S PREFERRED EMAIL LANGUAGE:\n{EMAIL_LANGUAGES[chosen_language]}"
+    elif job_posting is not None and job_posting.language in EMAIL_LANGUAGES:
+        prompt += f"\n\nJOB POSTING LANGUAGE:\n{EMAIL_LANGUAGES[job_posting.language]}"
     if profile.cover_letter_template.strip():
         prompt += f"\n\nOWNER'S COVER LETTER TEMPLATE (follow its structure/tone closely):\n{profile.cover_letter_template.strip()}"
+    kind = recipient_kind(db, application, company)
+    if RECIPIENT_TONE.get(kind):
+        prompt += f"\n\nRECIPIENT:\n{RECIPIENT_TONE[kind]}"
+    style = style_prompt_section(db, language, "")
+    if style:
+        prompt += f"\n\n{style}"
     if feedback:
         prompt += f"\n\nOWNER FEEDBACK ON PREVIOUS DRAFT (revise accordingly):\n{feedback}"
+    letter = write_letter(llm, prompt)
 
-    response = llm.generate(
-        prompt=prompt,
-        system=DRAFT_SYSTEM_PROMPT,
-        temperature=0.3,
-        max_output_tokens=4096,
-        json_schema=DraftResult.model_json_schema(),
+    # 3. Metadata over the finished letter (the writer may have returned it already)
+    meta = letter["metadata"] or letter_metadata(
+        llm,
+        subject=letter["subject"],
+        body=letter["body"],
+        context=(
+            f"AVAILABLE CV VARIANTS:\n{cv_list}\n\nPROFILE EVIDENCE:\n{evidence_section or 'none'}\n\n"
+            f"COMPANY TEXT:\n{wrap_untrusted(company_text)}"
+        ),
     )
-    data = parse_json_object(response.text, fallback=DRAFT_FALLBACK)
-    if "parse_error" in data:
-        raise ValueError(
-            "Drafting produced invalid JSON (likely truncated - try again). "
-            f"Raw response start:\n{data['parse_error']}"
-        )
-    try:
-        result = DraftResult.model_validate(data).model_dump()
-    except ValidationError as exc:
-        fields = ", ".join(".".join(str(part) for part in err["loc"]) for err in exc.errors())
-        raise ValueError(f"Drafting returned an incomplete draft (bad fields: {fields}) - try again.") from exc
+    sources, dropped_sources = validate_sources(list(meta.get("sources") or []), pages)
+    if angle and angle["hook_url"] not in sources:
+        sources.append(angle["hook_url"])
+    used_ids = [int(i) for i in dict.fromkeys(meta.get("evidence_item_ids") or []) if str(i).isdigit() and int(i) in offered]
+    if angle and angle["owner_evidence_id"] not in used_ids:
+        used_ids.insert(0, angle["owner_evidence_id"])
 
-    result["sources"], result["dropped_sources"] = validate_sources(result["sources"], pages)
-    given_ids = {item.id for item in evidence_items or []}
-    result["evidence_item_ids"] = [i for i in dict.fromkeys(result["evidence_item_ids"]) if i in given_ids]
-    return result
+    # App-written parts: project page link + signature block
+    identity = owner_identity(db)
+    lead_item = next((item for item in evidence_items if angle and item.id == angle["owner_evidence_id"]), None)
+    project_page = portfolio_link_for(db, lead_item, identity.get("portfolio_url", ""))
+    body = strip_trailing_name(letter["body"], identity.get("full_name", ""))
+    if project_page and project_page not in body:
+        body = f"{body.rstrip()}\n\n{PROJECT_PAGE_LABEL.get(language, 'Project page')}: {project_page}"
+    signature = signature_block(identity, language)
+    body = with_signature(body, signature)
+
+    misses = grounding_misses(letter["body"], _sources_text(profile, evidence_items, company_text))
+    return {
+        "target_position": meta.get("target_position") or (angle or {}).get("position", ""),
+        "cv_choice_name": meta.get("cv_choice_name", ""),
+        "reasoning": meta.get("reasoning", ""),
+        "subject": letter["subject"],
+        "cover_letter_body": body,
+        "sources": sources,
+        "dropped_sources": dropped_sources,
+        "evidence_item_ids": used_ids,
+        "unsupported_claims": list(meta.get("unsupported_claims") or []),
+        "angles": angles,
+        "angle_index": angle_index,
+        "dropped_angles": dropped_angles,
+        "recipient_kind": kind,
+        "grounding_misses": misses,
+        "project_page": project_page,
+        "metadata_error": meta.get("metadata_error", ""),
+    }
 
 
 def _draft_notes(result: dict, selection: EvidenceSelection) -> dict:
@@ -307,6 +333,13 @@ def _draft_notes(result: dict, selection: EvidenceSelection) -> dict:
         "unsupported_claims": result["unsupported_claims"],
         "evidence_fallback": selection.fallback,
         "evidence_error": selection.error,
+        "angles": result.get("angles") or [],
+        "angle_index": result.get("angle_index", 0),
+        "dropped_angles": result.get("dropped_angles", 0),
+        "recipient_kind": result.get("recipient_kind", ""),
+        "grounding_misses": result.get("grounding_misses") or {},
+        "project_page": result.get("project_page", ""),
+        "metadata_error": result.get("metadata_error", ""),
     }
 
 
@@ -331,6 +364,7 @@ def _review_notes(
     return {"review": review}
 
 
+@llm_context()
 def create_draft_application(
     db: Session,
     llm: LLMProvider,
@@ -338,11 +372,16 @@ def create_draft_application(
     target_position: str = "",
     application_reason: str = "",
     review_llm: LLMProvider | None = None,
+    job_posting: JobPosting | None = None,
 ) -> Application:
     """`review_llm` (the cheap reading model) runs the independent reviewer
-    pass on the new draft; None skips it."""
-    _require_draft_inputs(db, company)  # fail before spending a call on evidence selection
-    selection = select_evidence(db, llm, company, target_position, application_reason)
+    pass on the new draft; None skips it. With `job_posting`, the letter
+    answers that posting: its title is the position and its text leads."""
+    set_llm_ids(company_id=company.id)
+    if job_posting is not None and not target_position.strip():
+        target_position = job_posting.title
+    _require_draft_inputs(db, company, job_posting)  # fail before spending a call on evidence selection
+    selection = select_evidence(db, llm, company, target_position, application_reason, job_posting=job_posting)
     result = draft_application(
         db,
         llm,
@@ -350,12 +389,14 @@ def create_draft_application(
         target_position=target_position,
         application_reason=application_reason,
         evidence_items=selection.items,
+        job_posting=job_posting,
     )
     cv = _resolve_cv(db, result.get("cv_choice_name", ""))
 
     application = Application(
         company_id=company.id,
         cv_id=cv.id if cv else None,
+        job_posting_id=job_posting.id if job_posting is not None else None,
         target_position=target_position.strip() or result.get("target_position", ""),
         application_reason=application_reason.strip(),
         subject=result.get("subject", ""),
@@ -394,18 +435,28 @@ def _evidence_for_regeneration(db: Session, llm: LLMProvider, application: Appli
         application.target_position,
         application.application_reason,
         exclude_ids=excluded,
+        job_posting=application.job_posting,
     )
 
 
+@llm_context()
 def regenerate_draft(
     db: Session,
     llm: LLMProvider,
     application: Application,
     feedback: str,
     review_llm: LLMProvider | None = None,
+    angle_index: int | None = None,
 ) -> Application:
+    """Feedback refines the letter; `angle_index` rebuilds it around another
+    of the saved angles. Saved angles are reused - no new angle call."""
+    set_llm_ids(company_id=application.company_id, application_id=application.id)
     ensure_not_sent(application)
-    _require_draft_inputs(db, application.company)
+    saved_notes = (application.revision_history or [{}])[0]
+    saved_angles = saved_notes.get("angles") if "angles" in saved_notes else None
+    if angle_index is None:
+        angle_index = saved_notes.get("angle_index", 0)
+    _require_draft_inputs(db, application.company, application.job_posting)
     selection = _evidence_for_regeneration(db, llm, application)
     # Carry the owner's original intent (position, reason / open-application
     # mode) into every regeneration - feedback refines the email, not what it
@@ -418,6 +469,10 @@ def regenerate_draft(
         target_position=application.target_position,
         application_reason=application.application_reason,
         evidence_items=selection.items,
+        job_posting=application.job_posting,
+        angles=saved_angles,
+        angle_index=angle_index,
+        application=application,
     )
     cv = _resolve_cv(db, result.get("cv_choice_name", ""))
 
@@ -433,7 +488,7 @@ def regenerate_draft(
         **_draft_notes(result, selection),
         **_review_notes(db, review_llm, application.company, result, selection),
     }
-    history.append({"feedback": feedback, "previous_body": application.cover_letter_body})
+    history.append({"feedback": feedback, "previous_body": application.cover_letter_body, "angle_index": angle_index})
     application.revision_history = history
 
     if not application.target_position.strip():
@@ -448,3 +503,23 @@ def regenerate_draft(
     db.commit()
     db.refresh(application)
     return application
+
+
+def refresh_grounding(db: Session, application: Application) -> None:
+    """Re-run the grounding audit after the owner edited the letter (or applied
+    a reviewer edit), so "check before sending" describes the current text."""
+    profile = db.query(Profile).first()
+    if profile is None or not application.revision_history:
+        return
+    items = items_by_ids(db, [entry["item_id"] for entry in application.evidence or []])
+    company_text = company_context_for(application.company, application.job_posting, DRAFT_CONTEXT_CHARS)
+    history = list(application.revision_history)
+    history[0] = {**history[0], "grounding_misses": grounding_misses(application.cover_letter_body, _sources_text(profile, items, company_text))}
+    application.revision_history = history
+
+
+def known_records_text(db: Session, application: Application) -> str:
+    """What the profile already says, for fact capture to compare against."""
+    profile = db.query(Profile).first()
+    items = items_by_ids(db, [entry["item_id"] for entry in application.evidence or []])
+    return _sources_text(profile, items, "") if profile else ""

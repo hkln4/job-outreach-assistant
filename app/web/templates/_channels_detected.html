@@ -1,0 +1,32 @@
+{# Application channels found by code in the raw HTML (app/channels/detect.py). #}
+{% set channels = company.research.channels_detected or [] %}
+<h3>{{ t("channels.title") }} ({{ channels | length }})</h3>
+{% if channels %}
+  <ul class="link-list">
+    {% for ch in channels %}
+      <li>
+        <span class="badge {{ 'badge-state' if ch.kind in ('site_form', 'ats_board') else '' }}">{{ t("channels.kind." ~ ch.kind) }}</span>
+        {% if ch.provider %}<span class="badge">{{ ch.provider }}</span>{% endif %}
+        <a href="{{ ch.url }}" target="_blank" rel="noopener">{{ ch.url }}</a>
+        {% if ch.page_url and ch.page_url != ch.url %}<span class="muted">— {{ t("channels.found_on") }} <a href="{{ ch.page_url }}" target="_blank" rel="noopener">{{ ch.page_url }}</a></span>{% endif %}
+        {% if ch.evidence_snippet %}<div class="muted">"{{ ch.evidence_snippet }}"</div>{% endif %}
+        {% if ch.form_schema %}
+          <details>
+            <summary>{{ t("channels.fields") }} ({{ ch.form_schema.fields | length }}){% if ch.form_schema.has_file_input %} · {{ t("channels.file_input") }}{% endif %}{% if ch.form_schema.has_captcha %} · {{ t("channels.captcha") }}{% endif %}</summary>
+            <ul>
+              {% for f in ch.form_schema.fields %}
+                <li><code>{{ f.type }}</code> {{ f.label or f.name }}{% if f.required %} *{% endif %}{% if f.maxlength %} <span class="muted">(max {{ f.maxlength }})</span>{% endif %}{% if f.options %} <span class="muted">[{{ f.options | join(", ") }}]</span>{% endif %}</li>
+              {% endfor %}
+            </ul>
+          </details>
+        {% endif %}
+        {% if ch.kind == "portal" %}<div class="hint">{{ t("channels.portal_note") }}</div>{% endif %}
+      </li>
+    {% endfor %}
+  </ul>
+  {% if channels | selectattr("kind", "equalto", "ats_board") | selectattr("token") | list %}
+    <form method="post" action="/postings/from-company/{{ company.id }}"><button type="submit" class="secondary">{{ t("company_detail.add_boards") }}</button></form>
+  {% endif %}
+{% else %}
+  <p class="hint">{{ t("channels.none") }}</p>
+{% endif %}

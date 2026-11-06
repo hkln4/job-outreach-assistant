@@ -12,6 +12,10 @@ class LLMResponse:
     model: str
     provider: str
     raw: dict | None = None  # provider's raw response, kept for debugging only
+    # Token usage as the provider reported it (0 when it didn't) - recorded in
+    # LLMCallLog so the dashboard can show where the money goes.
+    input_tokens: int = 0
+    output_tokens: int = 0
 
 
 class LLMProvider(ABC):

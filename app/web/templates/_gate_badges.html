@@ -1,0 +1,4 @@
+{% for name, gate in (posting.gates or {}).items() %}
+  {% set r = gate.result %}
+  <span class="badge {{ 'badge-hard' if r == 'reject' else ('badge-soft' if r in ('gap', 'ambiguous') else ('badge-state' if r == 'pass' else '')) }}" title="{{ gate.quote }}">{{ t("postings.gate." ~ name) }}: {{ t("postings.gate_result." ~ r) }}</span>
+{% endfor %}

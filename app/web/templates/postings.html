@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block title %}{{ t("postings.title") }}{% endblock %}
+{% block content %}
+  <div class="dash-header">
+    <h1>{{ t("postings.title") }}</h1>
+    <a class="button-link secondary" href="/postings/boards">{{ t("postings.boards_link") }}</a>
+  </div>
+  <p class="hint">{{ t("postings.hint") }}</p>
+  {% if error %}<div class="warning"><p>{{ error }}</p></div>{% endif %}
+  {% if watch %}<div class="card"><p>{{ t("postings.watch_summary") }} {{ watch[0] }} · {{ t("postings.watch_changed") }} {{ watch[1] }} · {{ t("postings.watch_new") }} {{ watch[2] }} · {{ t("postings.watch_skipped") }} {{ watch[3] }}</p></div>{% endif %}
+
+  <div class="card">
+    <h2>{{ t("postings.add_title") }}</h2>
+    <form method="post" action="/postings" data-loading-text="{{ t('loading.reading_posting') }}">
+      <label>{{ t("postings.field.url") }}<input type="url" name="url" placeholder="https://..."></label>
+      <label>{{ t("postings.field.text") }}<textarea name="text" rows="5" placeholder="{{ t('postings.field.text_placeholder') }}"></textarea></label>
+      <p class="hint">{{ t("postings.add_hint") }}{% if not linkedin_enabled %} {{ t("postings.linkedin_off") }}{% endif %}</p>
+      <button type="submit">{{ t("postings.add_button") }}</button>
+    </form>
+    <form method="post" action="/postings/careers-watch" data-loading-text="{{ t('loading.checking') }}">
+      <p class="hint">{{ t("postings.watch_hint") }}</p>
+      <button type="submit" class="secondary">{{ t("postings.watch_button") }}</button>
+    </form>
+  </div>
+
+  <form method="get" action="/postings" class="inline-form">
+    <select name="status" onchange="this.form.submit()">
+      <option value="open" {% if filter_status == 'open' %}selected{% endif %}>{{ t("postings.filter.open") }}</option>
+      {% for st in statuses %}<option value="{{ st.value }}" {% if filter_status == st.value %}selected{% endif %}>{{ t("postings.status." ~ st.value) }}</option>{% endfor %}
+      <option value="all" {% if filter_status == 'all' %}selected{% endif %}>{{ t("postings.filter.all") }}</option>
+    </select>
+  </form>
+
+  <table class="table">
+    <thead><tr><th>{{ t("postings.table.posting") }}</th><th>{{ t("postings.table.gates") }}</th><th>{{ t("postings.table.fit") }}</th><th>{{ t("common.state") }}</th></tr></thead>
+    <tbody>
+      {% for posting in postings %}
+      <tr>
+        <td><a href="/postings/{{ posting.id }}"><strong>{{ posting.title or t("common.untitled") }}</strong></a>
+          <br><span class="hint">{{ posting.company.name if posting.company else (posting.company_name or "—") }} · {{ posting.location or "—" }} · {{ t("postings.source." ~ posting.source) }}</span>
+          {% if posting.legitimacy_flags %}<br><span class="badge badge-soft">{{ posting.legitimacy_flags | length }} {{ t("postings.flags") }}</span>{% endif %}
+          {% if posting.preference_check %}<span class="badge {{ 'badge-hard' if posting.preference_check | selectattr('severity', 'equalto', 'hard') | list else 'badge-soft' }}">{{ t("postings.pref_flags") }}</span>{% endif %}
+        </td>
+        <td>{% include "_gate_badges.html" %}</td>
+        <td>{% set v = (posting.fit or {}).get("verdict") %}{% if v %}<span class="badge {{ 'badge-state' if v == 'strong' else ('badge-hard' if v == 'blocked' else '') }}">{{ t("postings.verdict." ~ v) }}</span>{% elif (posting.extra or {}).get("parsed") == false %}<span class="muted">{{ t("postings.not_parsed") }}</span>{% else %}—{% endif %}</td>
+        <td class="cell-nowrap"><span class="badge">{{ t("postings.status." ~ posting.status.value) }}</span></td>
+      </tr>
+      {% else %}
+      <tr><td colspan="4" class="muted">{{ t("postings.empty") }}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% endblock %}

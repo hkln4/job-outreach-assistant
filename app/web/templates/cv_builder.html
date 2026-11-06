@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+{% block title %}{{ t("cvb.title") }}{% endblock %}
+{% block content %}
+  <h1>{{ t("cvb.title") }}</h1>
+  <p class="hint">{{ t("cvb.hint") }}</p>
+  {% if error %}<div class="warning"><p>{{ error }}</p></div>{% endif %}
+
+  {% if consistency %}
+  <div class="warning">
+    <h3>{{ t("cvb.consistency_title") }}</h3>
+    <ul>{% for c in consistency %}<li><strong>{{ c.project }}</strong> · {{ c.metric }}: {% for source, values in c.values.items() %}{{ t("cvb.src." ~ source) }} {{ values | join(", ") }}{% if not loop.last %} / {% endif %}{% endfor %}</li>{% endfor %}</ul>
+  </div>
+  {% endif %}
+
+  <div class="section card" id="template">
+    <h2>{{ t("cvb.template_title") }}</h2>
+    <form method="post" action="/cv-builder/base-cv" class="inline-form">
+      <label>{{ t("cvb.base_cv") }}
+        <select name="cv_id" onchange="this.form.submit()">
+          {% for cv in cvs %}<option value="{{ cv.id }}" {% if base_cv and base_cv.id == cv.id %}selected{% endif %}>{{ cv.name }}</option>{% endfor %}
+        </select>
+      </label>
+    </form>
+    <p class="hint">{{ t("cvb.locked_hint") }} {{ locked.education | length }} {{ t("cvb.education") }} · {{ locked.experience | length }} {{ t("cvb.experience") }} · {{ locked.certificates | length }} {{ t("cvb.certificates") }}
+      {% if not locked.experience and not locked.education %}<br>⚠ {{ t("cvb.no_entries") }}{% endif %}</p>
+    {% if settings.cv_template_approved %}<p><span class="badge badge-state">{{ t("cvb.template_approved") }}</span></p>
+    {% else %}<p class="hint">{{ t("cvb.template_hint") }}</p>{% endif %}
+    <form method="post" action="/cv-builder/template/sample" data-loading-text="{{ t('loading.rendering') }}"><button type="submit" class="secondary">{{ t("cvb.render_sample") }}</button></form>
+  </div>
+
+  <div class="section card" id="projects">
+    <h2>{{ t("cvb.projects_title") }}</h2>
+    <p class="hint">{{ t("cvb.projects_hint") }}</p>
+    <form method="post" action="/cv-builder/projects/suggest"><button type="submit" class="secondary">{{ t("cvb.suggest") }}</button></form>
+    {% for p in projects %}
+      <div class="evidence" id="project-{{ p.id }}">
+        <form method="post" action="/cv-builder/projects/{{ p.id }}" class="inline-form">
+          <button type="submit" name="action" value="toggle" class="{{ '' if p.selected else 'secondary' }}">{{ "✓" if p.selected else "+" }}</button>
+          <input type="text" name="name" value="{{ p.name }}">
+          <input type="text" name="subtitle" value="{{ p.subtitle }}" placeholder="{{ t('cvb.subtitle_placeholder') }}">
+          <input type="url" name="link_url" value="{{ p.link_url }}" placeholder="https://...">
+          <button type="submit" name="action" value="save" class="secondary">{{ t("common.save") }}</button>
+          {% if p.selected %}<button type="submit" name="action" value="bullets" class="secondary" data-loading-text="{{ t('loading.writing') }}">{{ t("cvb.write_bullets") if not p.bullets else t("cvb.rewrite_bullets") }}</button>{% endif %}
+          <span class="hint">{{ t("cvb.score") }} {{ p.score }}{% if p.owner_decided %} · {{ t("cvb.your_choice") }}{% endif %}</span>
+        </form>
+        {% for b in p.bullets %}
+          <form method="post" action="/cv-builder/bullets/{{ b.id }}" class="bullet-row">
+            <span class="badge {{ 'badge-state' if b.status == 'approved' else 'badge-soft' }}">{{ t("cvb.status." ~ b.status) }}</span>
+            {% if b.locked %}<span class="badge">{{ t("cvb.locked") }}</span>{% endif %}
+            <textarea name="text" rows="2">{{ b.text }}</textarea>
+            {% if b.flags.ungrounded_numbers %}<span class="hint">⚠ {{ t("cvb.flag_numbers") }} {{ b.flags.ungrounded_numbers | join(", ") }}</span>{% endif %}
+            {% if b.flags.ungrounded_tech %}<span class="hint">⚠ {{ t("cvb.flag_tech") }} {{ b.flags.ungrounded_tech | join(", ") }}</span>{% endif %}
+            {% if b.source.quote %}<span class="hint">{{ t("cvb.source") }} "{{ b.source.quote }}"</span>{% endif %}
+            {% if b.pending_text %}<div class="diff"><div class="diff-new"><span class="muted">{{ t("profile_item.proposed") }}</span><pre>{{ b.pending_text }}</pre></div></div>
+              <button type="submit" name="action" value="accept_pending" class="secondary">{{ t("profile_item.accept") }}</button>
+              <button type="submit" name="action" value="dismiss_pending" class="secondary">{{ t("profile_item.dismiss") }}</button>{% endif %}
+            <button type="submit" name="action" value="{{ 'unapprove' if b.status == 'approved' else 'approve' }}">{{ t("cvb.unapprove") if b.status == 'approved' else t("cvb.approve") }}</button>
+            <button type="submit" name="action" value="save" class="secondary">{{ t("common.save") }}</button>
+            <button type="submit" name="action" value="delete" class="secondary danger">{{ t("common.delete") }}</button>
+          </form>
+        {% endfor %}
+        {% if p.bullets and p.bullets | selectattr("flags.needs_metric") | list %}
+          <form method="post" action="/cv-builder/projects/{{ p.id }}/metric" class="inline-form">
+            <span class="hint">{{ t("cvb.ask_metric") }}</span>
+            <input type="text" name="answer" placeholder="{{ t('cvb.metric_placeholder') }}">
+            <button type="submit" class="secondary">{{ t("common.save") }}</button>
+          </form>
+        {% endif %}
+      </div>
+    {% else %}
+      <p class="muted">{{ t("cvb.no_projects") }}</p>
+    {% endfor %}
+  </div>
+
+  <div class="section card" id="skills">
+    <h2>{{ t("cvb.skills_title") }}</h2>
+    <p class="hint">{{ t("cvb.skills_hint") }}</p>
+    <div class="inline-form">
+      <form method="post" action="/cv-builder/skills"><input type="hidden" name="action" value="rebuild"><button type="submit" class="secondary">{{ t("cvb.rebuild") }}</button></form>
+      <form method="post" action="/cv-builder/skills"><input type="hidden" name="action" value="import_cv"><button type="submit" class="secondary">{{ t("cvb.import_cv_skills") }}</button></form>
+    </div>
+    {% for g in groups %}
+      <h3>{{ group_titles[g] }}</h3>
+      <p>
+      {% for s, status in skills_by_group[g] %}
+        <span class="badge {{ 'badge-state' if status == 'ok' else 'badge-soft' }} {{ 'muted' if s.hidden }}" title="{% for e in s.evidence %}{{ e.kind }}: {{ e.ref }}&#10;{% endfor %}">{{ s.name }}{% if status != 'ok' %} · {{ t("cvb.evidence." ~ status) }}{% endif %}</span>
+        <form method="post" action="/cv-builder/skills" style="display:inline"><input type="hidden" name="skill_id" value="{{ s.id }}"><button type="submit" name="action" value="toggle" class="link-button">{{ t("cvb.show") if s.hidden else t("cvb.hide") }}</button></form>
+      {% else %}<span class="muted">—</span>{% endfor %}
+      </p>
+    {% endfor %}
+    <form method="post" action="/cv-builder/skills" class="inline-form">
+      <input type="hidden" name="action" value="add">
+      <input type="text" name="name" required placeholder="{{ t('cvb.add_skill_placeholder') }}">
+      <select name="group"><option value="">{{ t("cvb.auto_group") }}</option>{% for g in groups %}<option value="{{ g }}">{{ group_titles[g] }}</option>{% endfor %}</select>
+      <button type="submit">{{ t("cvb.add_skill") }}</button>
+    </form>
+  </div>
+
+  {% if generated %}
+  <div class="section card">
+    <h2>{{ t("cvb.generated_title") }}</h2>
+    <ul class="link-list">{% for g in generated %}<li><a href="/cv-builder/cvs/{{ g.id }}">#{{ g.id }}</a> <span class="badge">{{ g.status }}</span>{% if g.application_id %} <a href="/applications/{{ g.application_id }}">{{ t("nav.applications") }} #{{ g.application_id }}</a>{% endif %} <span class="hint">{{ g.created_at.strftime("%Y-%m-%d") }}</span></li>{% endfor %}</ul>
+  </div>
+  {% endif %}
+{% endblock %}

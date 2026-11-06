@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}{{ t("profile_changes.title") }}{% endblock %}
+{% block content %}
+  <p><a href="/profile">← {{ t("nav.profile") }}</a></p>
+  <h1>{{ t("profile_changes.title") }}</h1>
+  <p class="hint">{{ t("profile_changes.hint") }}</p>
+  {% if error %}<div class="warning"><p>{{ error }}</p></div>{% endif %}
+  {% if report %}
+    <div class="card"><p>{{ report.unchanged }} {{ t("profile_changes.unchanged") }}</p></div>
+
+    <div class="section card">
+      <h2>{{ t("profile_changes.changed") }} ({{ report.changed | length }})</h2>
+      {% if report.changed %}
+        <ul class="link-list">
+          {% for c in report.changed %}
+            <li>
+              <a href="/profile/items/{{ c.item_id }}">{{ c.full_name }}</a>
+              <span class="muted">{{ t("profile_changes.reason." ~ c.reason) }}{% if c.old_sha %} · {{ c.old_sha[:7] }} → {{ c.new_sha[:7] }}{% endif %}</span>
+              <form method="post" action="/profile/items/{{ c.item_id }}/reanalyze" style="display:inline" data-loading-text="{{ t('loading.analyzing') }}">
+                <button type="submit" class="secondary">{{ t("profile_changes.reanalyze") }}</button>
+              </form>
+            </li>
+          {% endfor %}
+        </ul>
+        <a class="button-link" href="/profile/github/reanalyze/step?ids={{ report.changed | map(attribute='item_id') | join(',') }}&done=0&total={{ report.changed | length }}">{{ t("profile_changes.reanalyze_all") }}</a>
+        <p class="hint">{{ t("profile_changes.diff_note") }}</p>
+      {% else %}
+        <p class="muted">{{ t("profile_changes.none_changed") }}</p>
+      {% endif %}
+    </div>
+
+    {% if report.new %}
+    <div class="section card">
+      <h2>{{ t("profile_changes.new") }} ({{ report.new | length }})</h2>
+      <form method="post" action="/profile/github/ingest">
+        {% for n in report.new %}
+          <label><input type="checkbox" name="selected_repos" value="{{ n.full_name }}" checked> {{ n.full_name }} <span class="muted">{{ n.description }}</span></label>
+        {% endfor %}
+        <button type="submit">{{ t("profile_changes.analyze_new") }}</button>
+      </form>
+    </div>
+    {% endif %}
+
+    {% if report.deleted %}
+    <div class="section card">
+      <h2>{{ t("profile_changes.deleted") }} ({{ report.deleted | length }})</h2>
+      <ul class="link-list">
+        {% for d in report.deleted %}
+          <li><a href="/profile/items/{{ d.item_id }}">{{ d.full_name }}</a>
+            <form method="post" action="/profile/items/{{ d.item_id }}/skip" style="display:inline"><button type="submit" class="secondary">{{ t("profile_changes.skip") }}</button></form></li>
+        {% endfor %}
+      </ul>
+    </div>
+    {% endif %}
+  {% endif %}
+{% endblock %}

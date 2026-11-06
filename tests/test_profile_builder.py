@@ -34,18 +34,21 @@ def test_ingest_cv_records_analyzed_item(tmp_path):
     llm = FakeLLMProvider(
         json.dumps(
             {
-                "purpose": "Professional CV",
-                "stack": ["Python", "SQL"],
-                "role": "Backend Engineer",
-                "highlights": ["5 years experience"],
+                "entries": [
+                    {"entry_type": "experience", "title": "Backend engineer", "organization": "", "start": "", "end": "",
+                     "location": "", "bullets": ["Backend engineer with Python experience."], "stack": ["Python", "SQL"],
+                     "purpose": "A backend role."}
+                ]
             }
         )
     )
     db = SessionLocal()
     try:
-        item = ingest_cv(db, llm, str(path))
+        (item,) = ingest_cv(db, llm, str(path))
         assert item.status == ProfileItemStatus.ANALYZED
-        assert item.extracted["stack"] == ["Python", "SQL"]
+        assert item.parent_ref == str(path)
+        assert item.extracted["stack"] == ["Python"]  # SQL isn't in the document
+        assert item.extracted["claims_to_verify"] == ["Technology not found in the document: SQL"]
         assert len(llm.calls) == 1
     finally:
         db.close()
@@ -60,7 +63,7 @@ def test_ingest_cv_flags_needs_review_on_malformed_llm_output(tmp_path):
     llm = FakeLLMProvider("not valid json")
     db = SessionLocal()
     try:
-        item = ingest_cv(db, llm, str(path))
+        (item,) = ingest_cv(db, llm, str(path))
         assert item.status == ProfileItemStatus.NEEDS_REVIEW
     finally:
         db.close()
@@ -75,7 +78,7 @@ def test_ingest_cv_survives_corrupt_pdf_instead_of_crashing(tmp_path):
     llm = FakeLLMProvider("should never be called")
     db = SessionLocal()
     try:
-        item = ingest_cv(db, llm, str(path))
+        (item,) = ingest_cv(db, llm, str(path))
         assert item.status == ProfileItemStatus.NEEDS_REVIEW
         assert "parse_error" in item.extracted
         assert len(llm.calls) == 0  # no point calling the LLM with no text
@@ -129,5 +132,45 @@ def test_reingesting_a_source_updates_its_record_instead_of_duplicating():
         assert first.id  # first record existed before the fold
     finally:
         db.query(ProfileItem).filter(ProfileItem.source_ref == "owner/upsert-repo").delete()
+        db.commit()
+        db.close()
+
+
+def test_synthesis_is_hierarchical_and_never_drops_a_record():
+    """Phase 0 bug 8: with more records than one prompt holds, every analyzed
+    item's source_ref still reaches a synthesis call."""
+    import json as _json
+
+    from app.models import ProfileItem, ProfileItemStatus
+    from app.profile_builder.synthesis import synthesize_profile
+    from tests.fakes import SequencedLLMProvider
+
+    db = SessionLocal()
+    try:
+        refs = [f"owner/repo-{i:02d}" for i in range(30)]
+        for ref in refs:
+            db.add(
+                ProfileItem(
+                    source_type="github_repo",
+                    source_ref=ref,
+                    status=ProfileItemStatus.ANALYZED,
+                    extracted={"purpose": "x" * 1200, "stack": ["Python"], "role": "author", "highlights": []},
+                )
+            )
+        db.commit()
+        partial = _json.dumps({"summary": "s", "skills": [{"skill": "Python", "evidence_source": "owner/repo-00"}], "target_roles": ["ML"]})
+        llm = SequencedLLMProvider([partial] * 50)
+        profile = synthesize_profile(db, llm)
+
+        prompts = "\n".join(call["prompt"] for call in llm.calls)
+        all_refs = [i.source_ref for i in db.query(ProfileItem).filter(ProfileItem.status == ProfileItemStatus.ANALYZED)]
+        assert all(f"source_ref: {ref}" in prompts for ref in all_refs)
+        assert len(llm.calls) > 2  # several chunks plus a merge
+        assert "PARTIAL PROFILES" in llm.calls[-1]["prompt"]
+        assert all(len(call["prompt"]) <= 20000 + 100 for call in llm.calls)
+        assert profile.target_roles == ["ML"]
+    finally:
+        # shared test database: later tests count analyzed records
+        db.query(ProfileItem).filter(ProfileItem.source_ref.in_(refs)).delete(synchronize_session=False)
         db.commit()
         db.close()

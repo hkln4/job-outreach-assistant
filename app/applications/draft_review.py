@@ -1,7 +1,9 @@
-"""Independent reviewer pass on a draft: a second, cheaper model call that did
-not write the letter reads it next to the same company text, profile evidence
-and template, and lists what to fix. It never rewrites the draft and never
-blocks a send - its notes join the deterministic checks in the review page's
+"""Independent reviewer pass on a draft: a second model call that did not
+write the letter reads it next to the same company text, profile evidence and
+template, and lists what to fix - each issue with a ready replacement the owner
+can apply individually (roadmap phase 4). It runs on the draft model, since
+the reading model's Turkish was the weak spot it is meant to catch. It never
+rewrites the draft by itself and never blocks a send - its notes join the deterministic checks in the review page's
 "check before sending" box, and the owner can send them back through the
 normal reject/regenerate path.
 
@@ -16,7 +18,9 @@ from typing import Literal
 from pydantic import BaseModel, ValidationError, field_validator
 
 from app.applications.evidence import evidence_prompt_section
+from app.companies.context import research_context
 from app.llm.base import LLMProvider
+from app.llm.call_log import llm_context
 from app.llm.json_utils import parse_json_object
 from app.llm.untrusted import UNTRUSTED_RULE, wrap_untrusted
 from app.models import Company, ProfileItem
@@ -24,6 +28,7 @@ from app.models import Company, ProfileItem
 logger = logging.getLogger("app.draft_review")
 
 MAX_ISSUES = 8
+REVIEW_CONTEXT_CHARS = 16000
 MIN_QUOTE_CHARS = 3
 ISSUE_KINDS = (
     "unsupported_claim",
@@ -57,18 +62,22 @@ company or position.
 Rules:
 - "quote" must be copied EXACTLY, character for character, from the draft's subject or \
 body - a short span (a phrase or one sentence) that shows the problem. Never paraphrase.
-- "suggestion" says concretely what to change, in English, in one sentence.
+- "replacement": the exact text to put in place of the quote, in the draft's language, \
+ready to paste (an empty string means "delete the quote"). Keep everything else as is - fix \
+only what the issue is about, and never add a claim the evidence doesn't support.
+- "suggestion" says why, in English, in one sentence.
 - Report at most 8 issues, most important first. Report none if the draft is fine.
 - "overall": one sentence on whether the draft is ready to send.
 """ + UNTRUSTED_RULE + """\
 Output ONLY valid JSON, this exact shape:
-{"issues": [{"kind": string, "quote": string, "suggestion": string}], "overall": string}
+{"issues": [{"kind": string, "quote": string, "replacement": string, "suggestion": string}], "overall": string}
 """
 
 
 class ReviewIssue(BaseModel):
     kind: Literal[ISSUE_KINDS]
     quote: str
+    replacement: str = ""
     suggestion: str
 
     @field_validator("kind", mode="before")
@@ -92,6 +101,7 @@ def quote_in_draft(quote: str, subject: str, body: str) -> bool:
     return len(needle) >= MIN_QUOTE_CHARS and needle in _normalize(f"{subject}\n{body}")
 
 
+@llm_context("draft_review")
 def review_draft(
     llm: LLMProvider,
     *,
@@ -104,12 +114,11 @@ def review_draft(
 ) -> dict:
     """{"issues": [...], "overall": str, "dropped_quotes": int}, or {"error": str}
     when the call or its answer failed - a failed review must never stop a draft."""
-    pages = (company.research or {}).get("pages", [])
-    company_text = "\n\n---\n\n".join(f"[{p['url']}]\n{p['text']}" for p in pages)
+    company_text = research_context(company.research, REVIEW_CONTEXT_CHARS)
     prompt = (
         f"DRAFT SUBJECT:\n{subject}\n\nDRAFT BODY:\n{body}\n\n"
         f"PROFILE EVIDENCE:\n{evidence_prompt_section(evidence_items) or 'none'}\n\n"
-        f"COMPANY: {company.name}\n\nCOMPANY TEXT:\n{wrap_untrusted(company_text[:16000])}"
+        f"COMPANY: {company.name}\n\nCOMPANY TEXT:\n{wrap_untrusted(company_text)}"
     )
     if language:
         prompt += f"\n\nOWNER'S PREFERRED EMAIL LANGUAGE:\n{language}"
@@ -152,3 +161,27 @@ def review_feedback(review: dict | None) -> str:
     lines = ["Fix these points from the review, keep everything else:"]
     lines += [f'- "{issue["quote"]}": {issue["suggestion"]}' for issue in issues]
     return "\n".join(lines)
+
+
+def _find_span(quote: str, text: str) -> tuple[int, int] | None:
+    """Where `quote` is in `text` - exactly, or ignoring whitespace runs."""
+    index = text.find(quote)
+    if index >= 0:
+        return index, index + len(quote)
+    pattern = r"\s+".join(re.escape(part) for part in quote.split())
+    match = re.search(pattern, text) if pattern else None
+    return (match.start(), match.end()) if match else None
+
+
+def apply_issue(subject: str, body: str, issue: dict) -> tuple[str, str] | None:
+    """(subject, body) with the issue's quote replaced, or None when the quote
+    is no longer in the draft (e.g. the owner edited that part)."""
+    quote, replacement = issue.get("quote", ""), issue.get("replacement", "")
+    for field in ("body", "subject"):
+        text = body if field == "body" else subject
+        span = _find_span(quote, text)
+        if span:
+            new = text[: span[0]] + replacement + text[span[1] :]
+            new = re.sub(r"[ \t]{2,}", " ", new)
+            return (subject, new) if field == "body" else (new, body)
+    return None

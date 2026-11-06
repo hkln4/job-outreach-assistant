@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.llm.base import LLMProvider
+from app.llm.call_log import llm_context, set_llm_ids
 from app.llm.json_utils import parse_json_object
 from app.models import Application, FollowUp, FollowUpState
 
@@ -30,8 +31,10 @@ def next_follow_up_due(sent_at: datetime) -> datetime:
     return sent_at + timedelta(days=get_settings().no_response_days)
 
 
+@llm_context("follow_up")
 def draft_follow_up(db: Session, llm: LLMProvider, application: Application) -> FollowUp:
     """Creates (or refreshes) the pending follow-up draft for this application."""
+    set_llm_ids(company_id=application.company_id, application_id=application.id)
     days_waiting = ""
     if application.sent_at is not None:
         sent = application.sent_at if application.sent_at.tzinfo else application.sent_at.replace(tzinfo=timezone.utc)

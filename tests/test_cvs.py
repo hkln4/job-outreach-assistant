@@ -8,6 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import app.web.routes.cvs as cvs_routes
+from app.config import get_settings
 from app.db import SessionLocal, init_db
 from app.email_send.gmail_client import _build_message
 from app.main import app
@@ -22,8 +23,10 @@ def setup_module():
 
 @pytest.fixture(autouse=True)
 def _tmp_cv_dir(tmp_path, monkeypatch):
-    monkeypatch.setattr(cvs_routes, "CV_VARIANTS_DIR", str(tmp_path))
-    return tmp_path
+    monkeypatch.setenv("CV_VARIANTS_DIR", str(tmp_path))
+    get_settings.cache_clear()
+    yield tmp_path
+    get_settings.cache_clear()
 
 
 def _upload(name, filename="cv.pdf", content=b"%PDF-1.4 fake"):

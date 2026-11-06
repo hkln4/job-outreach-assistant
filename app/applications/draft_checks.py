@@ -4,23 +4,12 @@ things the app had to correct (invented sources, a failed evidence pick) and
 things the prompt asks for but the model may not have delivered."""
 import re
 
+from app.applications.phrases import found_in
 from app.models import Application, ApplicationState
 
 # The prompt asks for 130-180 words (Turkish) or 100-150 (English); flag only clear misses.
 MIN_WORDS = 80
 MAX_WORDS = 230
-
-# Stock phrases DRAFT_SYSTEM_PROMPT bans - flagged in case the model slips anyway.
-BANNED_PHRASES = (
-    "takip ediyorum",
-    "katkı sağlayabileceğime",
-    "kendimi geliştirebileceğim bir ekipte",
-    "örtüştüğünü düşünüyorum",
-    "sağlam bir temel",
-    "i believe i can contribute",
-    "following with great interest",
-)
-
 
 def _words(text: str) -> int:
     return len(re.findall(r"\w+", text))
@@ -41,8 +30,7 @@ def draft_warnings(application: Application) -> list[tuple[str, str]]:
         if count < MIN_WORDS or count > MAX_WORDS:
             warnings.append(("draft_check.word_count", str(count)))
 
-    lowered = body.casefold()
-    found = [phrase for phrase in BANNED_PHRASES if phrase in lowered]
+    found = found_in(body)
     if found:
         warnings.append(("draft_check.cliche", ", ".join(f'"{p}"' for p in found)))
 
@@ -57,4 +45,13 @@ def draft_warnings(application: Application) -> list[tuple[str, str]]:
         warnings.append(("draft_check.no_evidence_used", ""))
     if notes.get("unsupported_claims"):
         warnings.append(("draft_check.unsupported_claims", "; ".join(notes["unsupported_claims"])))
+    misses = notes.get("grounding_misses") or {}
+    if misses.get("numbers"):
+        warnings.append(("draft_check.ungrounded_numbers", ", ".join(misses["numbers"])))
+    if misses.get("technologies"):
+        warnings.append(("draft_check.ungrounded_technologies", ", ".join(misses["technologies"])))
+    if notes.get("dropped_angles"):
+        warnings.append(("draft_check.dropped_angles", str(notes["dropped_angles"])))
+    if notes.get("metadata_error"):
+        warnings.append(("draft_check.metadata_error", notes["metadata_error"]))
     return warnings

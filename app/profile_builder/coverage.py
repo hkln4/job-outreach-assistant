@@ -4,10 +4,19 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.models import ProfileItem, ProfileItemStatus
+from app.profile_builder.records import merge_reanalysis
 
 
 def record_item(
-    db: Session, *, source_type: str, source_ref: str, extracted: dict, source_urls: list[str]
+    db: Session,
+    *,
+    source_type: str,
+    source_ref: str,
+    extracted: dict,
+    source_urls: list[str],
+    facts: dict | None = None,
+    source_version: dict | None = None,
+    parent_ref: str | None = None,
 ) -> ProfileItem:
     status = ProfileItemStatus.ANALYZED
     looks_empty = (
@@ -35,9 +44,17 @@ def record_item(
         item = keep
     else:
         item = existing[0] if existing else ProfileItem(source_type=source_type, source_ref=source_ref)
-        item.extracted = extracted
+        # Owner edits survive re-analysis; the model's differing values for
+        # those fields wait in pending_update (app/profile_builder/records.py).
+        item.extracted = merge_reanalysis(item, extracted) if item.owner_edited_fields else extracted
         item.status = status
         item.source_urls = source_urls
+        if facts is not None:
+            item.facts = facts
+        if source_version is not None:
+            item.source_version = source_version
+        if parent_ref is not None:
+            item.parent_ref = parent_ref
         db.add(item)
     for duplicate in existing:
         if duplicate is not item:

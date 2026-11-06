@@ -20,6 +20,7 @@ from sqlalchemy.orm import Session
 from app.companies.linkedin_fetch import fetch_linkedin_company
 from app.config import get_settings
 from app.llm.base import LLMProvider
+from app.llm.call_log import llm_context, set_llm_ids
 from app.llm.json_utils import parse_json_object
 from app.llm.untrusted import UNTRUSTED_RULE, wrap_untrusted
 from app.models import Company
@@ -132,7 +133,9 @@ def _key_people(data: dict, fetched: dict) -> list[dict]:
     return people
 
 
+@llm_context("linkedin_research")
 def linkedin_research_company(db: Session, llm: LLMProvider, company: Company) -> Company:
+    set_llm_ids(company_id=company.id)
     if not company.linkedin_url:
         raise ValueError(
             "Company has no LinkedIn URL set - none was found on the website, so add it by hand."

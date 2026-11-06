@@ -26,13 +26,26 @@ class Settings(BaseSettings):
     # Independent reviewer pass on every draft (app/applications/draft_review.py):
     # one extra call on the reading model, shown in "check before sending".
     draft_review_enabled: bool = True
+    # Extra/override prices for the /costs page, USD per million tokens:
+    # "model=input/output,model=input/output". Built-in: current Claude models.
+    llm_prices: str = ""
 
     # Storage
     database_url: str = "sqlite:///data/app.db"
+    # Uploaded CV variants.
+    cv_variants_dir: str = "data/cv_variants"
+    # Generated CVs (roadmap phase 5).
+    generated_cvs_dir: str = "data/generated_cvs"
+    cv_page_limit: int = 1
+    # Copies of every CV exactly as attached (Application.cv_snapshot).
+    sent_cvs_dir: str = "data/sent_cvs"
 
     # GitHub ingestion (token identity is used directly - GET /user - so no
     # username setting is needed; see app/profile_builder/github_ingest.py)
     github_token: str = ""
+    # Characters of README + code read per repo for its profile record
+    # (roadmap phase 1). A detailed README lowers the code share.
+    profile_repo_char_budget: int = 30000
 
     # Gmail send
     gmail_credentials_path: str = "credentials.json"
@@ -68,6 +81,20 @@ class Settings(BaseSettings):
     linkedin_mcp_timeout_seconds: int = 900
     # Pause between tool calls - rate hygiene even on a throwaway account.
     linkedin_tool_delay_seconds: float = 3.0
+
+    # Discovery liveness (roadmap phase 2): a site whose newest activity signal
+    # (copyright year, sitemap lastmod, news date) is older than this is STALE.
+    liveness_stale_years: int = 2
+    # Company lists the owner uploads to Discovery (CSV/XLSX).
+    discovery_uploads_dir: str = "data/discovery_uploads"
+    liveness_concurrency: int = 8
+
+    # Job postings (roadmap phase 3)
+    posting_stale_days: int = 45  # older than this -> "old posting" legitimacy flag
+    # Search API, only to find ATS board slugs (never as the source of postings).
+    search_api_enabled: bool = False
+    search_api_provider: str = "tavily"  # tavily | brave
+    search_api_key: str = ""
 
     # App server
     app_host: str = "127.0.0.1"

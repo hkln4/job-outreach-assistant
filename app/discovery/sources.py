@@ -25,9 +25,11 @@ from bs4 import BeautifulSoup
 
 from app.companies.bulk_parse import domain_of
 from app.companies.dedup import normalize_url
+from app.companies.emails import decode_cfemail
 from app.email_send.gmail_client import validate_email
 from app.companies.fetch import BROWSER_HEADERS
 from app.llm.base import LLMProvider
+from app.llm.call_log import llm_context
 from app.llm.json_utils import parse_json_object
 from app.llm.untrusted import UNTRUSTED_RULE, wrap_untrusted
 
@@ -120,17 +122,8 @@ def _company_links(soup: BeautifulSoup, page_url: str) -> list[str]:
     return links
 
 
-def _decode_cfemail(hex_text: str) -> str:
-    """Cloudflare's email obfuscation: first byte is the XOR key."""
-    try:
-        key = int(hex_text[:2], 16)
-        return "".join(chr(int(hex_text[i : i + 2], 16) ^ key) for i in range(2, len(hex_text), 2))
-    except ValueError:
-        return ""
-
-
 def _emails(soup: BeautifulSoup) -> list[str]:
-    found = [_decode_cfemail(el["data-cfemail"]) for el in soup.select("[data-cfemail]")]
+    found = [decode_cfemail(el["data-cfemail"]) for el in soup.select("[data-cfemail]")]
     found += [a["href"][7:].split("?")[0] for a in soup.find_all("a", href=True) if a["href"].startswith("mailto:")]
     found += _EMAIL_RE.findall(soup.get_text(" "))
     return [e for e in dict.fromkeys(found) if validate_email(e)]
@@ -317,6 +310,7 @@ def _page_text_and_links(html: str, page_url: str) -> tuple[str, list[tuple[str,
     return text, outbound[:MAX_LINKS_PER_PAGE], pages
 
 
+@llm_context("directory_parse")
 def _companies_on_page(llm: LLMProvider, text: str, links: list[tuple[str, str]]) -> list[dict]:
     link_lines = "\n".join(f"- {label or '(no text)'} -> {href}" for label, href in links) or "none"
     prompt = (
